@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equipment Checkout System — Mockup</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+  :root {
+    --page-bg: #F4F5F7;
+    --card-bg: #FFFFFF;
+    --tile-bg: #F1F3F6;
+    --border: #E3E5E9;
+    --text-primary: #1A1D23;
+    --text-secondary: #6B7280;
+    --text-muted: #9CA3AF;
+    --accent: #2E5C8A;
+    --accent-bg: #E6F1FB;
+    --accent-text: #0C447C;
+    --success-bg: #EAF3DE;
+    --success-text: #27500A;
+    --warning-bg: #FAEEDA;
+    --warning-text: #854F0B;
+    --danger-bg: #FCEBEB;
+    --danger-text: #A32D2D;
+    --sidebar-w: 230px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-primary);
+  }
+
+  /* ---------- layout shell ---------- */
+
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--sidebar-w);
+    height: 100vh;
+    background: var(--card-bg);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    padding: 0 4px;
+  }
+  .sidebar-brand i { font-size: 20px; color: var(--accent); }
+
+  .role-switch {
+    display: flex;
+    gap: 4px;
+    background: var(--tile-bg);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 20px;
+  }
+  .role-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 7px 0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-secondary);
+  }
+  .role-btn.active { background: var(--card-bg); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+  .nav-list { display: none; flex-direction: column; gap: 2px; }
+  .nav-list.active { display: flex; }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: left;
+  }
+  .nav-item i { font-size: 18px; flex-shrink: 0; }
+  .nav-item:hover { background: var(--tile-bg); color: var(--text-primary); }
+  .nav-item.active { background: var(--accent-bg); color: var(--accent-text); }
+
+  .sidebar-spacer { flex: 1; }
+
+  .sidebar-footer { display: none; align-items: center; gap: 10px; padding: 10px 4px 0; border-top: 1px solid var(--border); margin-top: 12px; }
+  .sidebar-footer.active { display: flex; }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent-bg); color: var(--accent-text);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; flex-shrink: 0;
+  }
+  .footer-name { margin: 0; font-size: 13px; font-weight: 600; }
+  .footer-role { margin: 0; font-size: 12px; color: var(--text-secondary); }
+
+  .main { margin-left: var(--sidebar-w); padding: 28px 32px 56px; }
+
+  .page { display: none; max-width: 1100px; }
+  .page.active { display: block; }
+
+  /* ---------- shared components ---------- */
+
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 0 0 14px; }
+
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .tier-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
+    background: var(--accent-bg); color: var(--accent-text);
+  }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .btn {
+    border: 1px solid #D1D5DB;
+    background: var(--card-bg);
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-primary);
+  }
+  .btn:hover { background: var(--tile-bg); }
+  .btn-accent { border: 2px solid var(--accent); color: var(--accent-text); font-weight: 600; }
+  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+  .today-card { background: var(--card-bg); border: 1px solid var(--accent); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+  .today-card .eyebrow { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 10px; }
+
+  .today-row, .row {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .today-row:last-child, .row:last-child { border-bottom: none; }
+  .today-row .left, .row .left { display: flex; align-items: center; gap: 12px; }
+  .today-row .left i { font-size: 20px; color: var(--accent); }
+  .today-row p, .row p { margin: 0; }
+  .item-title { font-size: 14px; font-weight: 600; }
+  .item-meta { font-size: 13px; color: var(--text-secondary); }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .metric { background: var(--tile-bg); border-radius: 10px; padding: 16px; }
+  .metric.warning { background: var(--warning-bg); }
+  .metric.danger { background: var(--danger-bg); }
+  .metric .label { font-size: 13px; color: var(--text-secondary); margin: 0 0 6px; }
+  .metric.warning .label { color: var(--warning-text); }
+  .metric.danger .label { color: var(--danger-text); }
+  .metric .value { font-size: 25px; font-weight: 600; margin: 0; }
+  .metric.warning .value { color: var(--warning-text); }
+  .metric.danger .value { color: var(--danger-text); }
+
+  .columns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 20px; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+  .card:last-child { margin-bottom: 0; }
+
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+  .badge.success { background: var(--success-bg); color: var(--success-text); }
+  .badge.warning { background: var(--warning-bg); color: var(--warning-text); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger-text); }
+  .badge.neutral { background: var(--tile-bg); color: var(--text-secondary); }
+
+  .notif { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .notif:last-child { border-bottom: none; }
+  .notif i { font-size: 16px; margin-top: 2px; }
+  .notif p { margin: 0; font-size: 13px; }
+  .notif .time { font-size: 12px; color: var(--text-muted); }
+
+  .icon-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .icon-btn { border: 1px solid var(--border); background: var(--card-bg); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 16px; line-height: 1; }
+  .icon-btn.approve { color: var(--success-text); }
+  .icon-btn.deny { color: var(--danger-text); }
+  .icon-btn:hover { background: var(--tile-bg); }
+
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-row .label { width: 130px; font-size: 13px; flex-shrink: 0; }
+  .bar-track { flex: 1; background: var(--tile-bg); border-radius: 4px; height: 8px; }
+  .bar-fill { background: var(--accent); height: 8px; border-radius: 4px; }
+  .bar-row .count { font-size: 13px; color: var(--text-secondary); width: 26px; text-align: right; }
+
+  .alert-banner { display: flex; align-items: flex-start; gap: 12px; background: var(--danger-bg); border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; }
+  .alert-banner i { font-size: 20px; color: var(--danger-text); margin-top: 2px; flex-shrink: 0; }
+  .alert-banner strong { display: block; font-size: 14px; color: var(--danger-text); margin-bottom: 2px; }
+  .alert-banner p { margin: 0; font-size: 13px; color: var(--danger-text); }
+
+  .helper-note { font-size: 13px; color: var(--text-muted); margin-top: 12px; }
+
+  /* filters / search */
+  .filter-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .search-input { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary); }
+  .filter-select { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card-bg); color: var(--text-primary); }
+
+  .pill-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .pill-tab { border: 1px solid var(--border); background: var(--card-bg); padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-secondary); }
+  .pill-tab.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text); }
+
+  .subtabs { display: inline-flex; gap: 4px; background: var(--tile-bg); border-radius: 8px; padding: 4px; margin-bottom: 20px; }
+  .subtab-btn { border: none; background: transparent; padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+  .subtab-btn.active { background: var(--card-bg); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .subview { display: none; }
+  .subview.active { display: block; }
+
+  /* item grid */
+  .item-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .item-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; }
+  .item-card.locked { opacity: 0.55; }
+  .item-card .icon-wrap { width: 40px; height: 40px; border-radius: 8px; background: var(--tile-bg); display: flex; align-items: center; justify-content: center; margin-bottom: 12px; color: var(--accent); font-size: 20px; }
+  .item-card .item-name { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .item-card .item-sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 10px; }
+  .item-card .item-price { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+  .item-card .item-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .item-card .btn { width: 100%; margin-top: auto; }
+
+  /* tables */
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.data-table th { text-align: left; font-size: 12px; color: var(--text-secondary); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.data-table td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.data-table tr:last-child td { border-bottom: none; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  /* location cards */
+  .location-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .location-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .location-card .item-name { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  .location-card .item-sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
+  .location-card .location-foot { display: flex; align-items: center; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-brand"><i class="ti ti-clipboard-list"></i>Equipment Checkout</div>
+
+  <div class="role-switch">
+    <button class="role-btn active" id="role-student" onclick="setRole('student')">Student</button>
+    <button class="role-btn" id="role-admin" onclick="setRole('admin')">Admin</button>
+  </div>
+
+  <nav class="nav-list active" id="nav-student">
+    <button class="nav-item active" data-page="student-dashboard" onclick="showPage('student-dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
+    <button class="nav-item" data-page="student-browse" onclick="showPage('student-browse')"><i class="ti ti-search"></i>Browse equipment</button>
+    <button class="nav-item" data-page="student-reservations" onclick="showPage('student-reservations')"><i class="ti ti-calendar-event"></i>My reservations</button>
+    <button class="nav-item" data-page="student-holds" onclick="showPage('student-holds')"><i class="ti ti-alert-circle"></i>Holds &amp; fines</button>
+  </nav>
+
+  <nav class="nav-list" id="nav-admin">
+    <button class="nav-item" data-page="admin-dashboard" onclick="showPage('admin-dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
+    <button class="nav-item" data-page="admin-approvals" onclick="showPage('admin-approvals')"><i class="ti ti-checklist"></i>Approvals</button>
+    <button class="nav-item" data-page="admin-items" onclick="showPage('admin-items')"><i class="ti ti-package"></i>Items &amp; kits</button>
+    <button class="nav-item" data-page="admin-locations" onclick="showPage('admin-locations')"><i class="ti ti-map-pin"></i>Locations</button>
+    <button class="nav-item" data-page="admin-users" onclick="showPage('admin-users')"><i class="ti ti-users"></i>Users</button>
+    <button class="nav-item" data-page="admin-reports" onclick="showPage('admin-reports')"><i class="ti ti-chart-bar"></i>Reports</button>
+  </nav>
+
+  <div class="sidebar-spacer"></div>
+
+  <div class="sidebar-footer active" id="footer-student">
+    <div class="avatar">JL</div>
+    <div><p class="footer-name">Jordan Lee</p><p class="footer-role">Intermediate tier</p></div>
+  </div>
+  <div class="sidebar-footer" id="footer-admin">
+    <div class="avatar">AR</div>
+    <div><p class="footer-name">A. Rivera</p><p class="footer-role">Admin</p></div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ===================== STUDENT: DASHBOARD ===================== -->
+  <section id="student-dashboard" class="page active">
+
+    <div class="page-header">
+      <div>
+        <h1>Welcome back, Jordan</h1>
+        <span class="tier-badge"><i class="ti ti-award"></i>Intermediate tier</span>
+      </div>
+      <div class="actions">
+        <button class="btn" onclick="showPage('student-browse')"><i class="ti ti-search" style="margin-right:6px;"></i>Search equipment</button>
+        <button class="btn btn-accent" onclick="alert('This would open the new reservation builder.')"><i class="ti ti-plus" style="margin-right:6px;"></i>New reservation</button>
+      </div>
+    </div>
+
+    <div class="today-card">
+      <p class="eyebrow">Today</p>
+
+      <div class="today-row">
+        <div class="left">
+          <i class="ti ti-package"></i>
+          <p><span class="item-title">Camera kit pickup</span><br><span class="item-meta">2:00 PM &middot; Studio A</span></p>
+        </div>
+        <button class="btn" onclick="alert('This would open the pickup checklist for the student and worker to confirm together.')">Confirm pickup</button>
+      </div>
+
+      <div class="today-row">
+        <div class="left">
+          <i class="ti ti-rotate"></i>
+          <p><span class="item-title">Tripod return</span><br><span class="item-meta">Due 10:00 AM &middot; Studio A</span></p>
+        </div>
+        <button class="btn" onclick="alert('This would open the return checklist for the student and worker to confirm together.')">Confirm return</button>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><p class="label">Active reservations</p><p class="value">2</p></div>
+      <div class="metric"><p class="label">Pending approval</p><p class="value">1</p></div>
+      <div class="metric"><p class="label">On waitlist</p><p class="value">1</p></div>
+      <div class="metric danger"><p class="label">Fine balance</p><p class="value">$5</p></div>
+    </div>
+
+    <div class="columns">
+      <div class="card" style="margin-bottom:0;">
+        <h3>My reservations</h3>
+        <div class="row">
+          <p><span class="item-title">Lighting kit</span><br><span class="item-meta">Studio B &middot; Jun 26, 1&ndash;4 PM</span></p>
+          <span class="badge success">Approved</span>
+        </div>
+        <div class="row">
+          <p><span class="item-title">Boom mic + tripod</span><br><span class="item-meta">Studio A &middot; Jun 28, 9&ndash;11 AM</span></p>
+          <span class="badge warning">Pending</span>
+        </div>
+        <div class="row">
+          <p><span class="item-title">Drone kit</span><br><span class="item-meta">Field House &middot; Jul 2, 10 AM&ndash;2 PM</span></p>
+          <span class="badge neutral">Waitlisted</span>
+        </div>
+        <button class="btn" style="margin-top:14px; width:100%;" onclick="showPage('student-reservations')">View all reservations</button>
+      </div>
+
+      <div class="card" style="margin-bottom:0;">
+        <h3>Notifications</h3>
+        <div class="notif"><i class="ti ti-check" style="color:var(--success-text);"></i><p>Lighting kit approved<br><span class="time">2 hours ago</span></p></div>
+        <div class="notif"><i class="ti ti-alert-triangle" style="color:var(--warning-text);"></i><p>Damage noted on returned mic<br><span class="time">Yesterday</span></p></div>
+        <div class="notif"><i class="ti ti-currency-dollar" style="color:var(--danger-text);"></i><p>$5 late fine added<br><span class="time">2 days ago</span></p></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== STUDENT: BROWSE EQUIPMENT ===================== -->
+  <section id="student-browse" class="page">
+
+    <div class="page-header">
+      <h1>Browse equipment</h1>
+    </div>
+
+    <div class="filter-bar">
+      <input class="search-input" type="text" placeholder="Search equipment...">
+      <select class="filter-select"><option>All categories</option><option>Camera</option><option>Audio</option><option>Lighting</option><option>Grip</option></select>
+      <select class="filter-select"><option>All locations</option><option>Studio A</option><option>Studio B</option><option>Field House</option></select>
+      <select class="filter-select"><option>Any availability</option><option>Available now</option></select>
+    </div>
+
+    <div class="item-grid">
+      <div class="item-card">
+        <div class="icon-wrap"><i class="ti ti-video"></i></div>
+        <p class="item-name">Camera kit A</p>
+        <p class="item-sub">Sony FX3 &middot; Studio A</p>
+        <p class="item-price">$1,200 value</p>
+        <div class="item-badges"><span class="badge success">Available</span><span class="badge neutral">Intermediate+</span></div>
+        <button class="btn" onclick="alert('This would add Camera kit A to a new reservation.')">Reserve</button>
+      </div>
+
+      <div class="item-card">
+        <div class="icon-wrap"><i class="ti ti-bulb"></i></div>
+        <p class="item-name">Lighting kit</p>
+        <p class="item-sub">3-point LED &middot; Studio B</p>
+        <p class="item-price">$450 value</p>
+        <div class="item-badges"><span class="badge success">Available</span><span class="badge neutral">Beginner+</span></div>
+        <button class="btn" onclick="alert('This would add Lighting kit to a new reservation.')">Reserve</button>
+      </div>
+
+      <div class="item-card">
+        <div class="icon-wrap"><i class="ti ti-microphone-2"></i></div>
+        <p class="item-name">Boom mic</p>
+        <p class="item-sub">Rode NTG3 &middot; Studio A</p>
+        <p class="item-price">$180 value</p>
+        <div class="item-badges"><span class="badge warning">Flagged</span><span class="badge neutral">Beginner+</span></div>
+        <button class="btn" onclick="alert('This would add Boom mic to a new reservation.')">Reserve</button>
+      </div>
+
+      <div class="item-card">
+        <div class="icon-wrap"><i class="ti ti-stand"></i></div>
+        <p class="item-name">Tripod</p>
+        <p class="item-sub">Manfrotto &middot; Studio A</p>
+        <p class="item-price">$90 value</p>
+        <div class="item-badges"><span class="badge warning">Low stock</span><span class="badge neutral">Beginner+</span></div>
+        <button class="btn" onclick="alert('This would add Tripod to a new reservation.')">Reserve</button>
+      </div>
+
+      <div class="item-card">
+        <div class="icon-wrap"><i class="ti ti-drone"></i></div>
+        <p class="item-name">Drone kit</p>
+        <p class="item-sub">DJI Air 3 &middot; Field House</p>
+        <p class="item-price">$2,400 value</p>
+        <div class="item-badges"><span class="badge neutral">Waitlist only</span><span class="badge neutral">Advanced</span></div>
+        <button class="btn" onclick="alert('This would join the waitlist for Drone kit.')">Join waitlist</button>
+      </div>
+
+      <div class="item-card locked">
+        <div class="icon-wrap"><i class="ti ti-lock"></i></div>
+        <p class="item-name">Cinema camera</p>
+        <p class="item-sub">ARRI Alexa &middot; Studio A</p>
+        <p class="item-price">$3,800 value</p>
+        <div class="item-badges"><span class="badge danger">Advanced tier required</span></div>
+        <button class="btn" disabled>Reserve</button>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== STUDENT: MY RESERVATIONS ===================== -->
+  <section id="student-reservations" class="page">
+
+    <div class="page-header">
+      <h1>My reservations</h1>
+      <button class="btn btn-accent" onclick="alert('This would open the new reservation builder.')"><i class="ti ti-plus" style="margin-right:6px;"></i>New reservation</button>
+    </div>
+
+    <div class="pill-tabs">
+      <button class="pill-tab active">Upcoming</button>
+      <button class="pill-tab">Pending</button>
+      <button class="pill-tab">Past</button>
+      <button class="pill-tab">All</button>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <p><span class="item-title">Lighting kit</span><br><span class="item-meta">Studio B &middot; Jun 26, 1&ndash;4 PM</span></p>
+        <span class="badge success">Approved</span>
+      </div>
+      <div class="row">
+        <p><span class="item-title">Boom mic + tripod</span><br><span class="item-meta">Studio A &middot; Jun 28, 9&ndash;11 AM</span></p>
+        <span class="badge warning">Pending</span>
+      </div>
+      <div class="row">
+        <p><span class="item-title">Drone kit</span><br><span class="item-meta">Field House &middot; Jul 2, 10 AM&ndash;2 PM</span></p>
+        <span class="badge neutral">Waitlisted</span>
+      </div>
+      <div class="row" style="align-items:flex-start;">
+        <p style="max-width:420px;">
+          <span class="item-title">Audio recorder kit</span><br>
+          <span class="item-meta">Studio A &middot; Jun 20, 1&ndash;3 PM</span><br>
+          <span class="item-meta" style="color:var(--danger-text);">Reason: insufficient quantity available for that time slot</span>
+        </p>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge danger">Denied</span>
+          <button class="btn" onclick="alert('This would let the student edit the date/time and resubmit for approval.')">Edit &amp; resubmit</button>
+        </div>
+      </div>
+      <div class="row">
+        <p><span class="item-title">Camera kit A</span><br><span class="item-meta">Studio A &middot; Jun 18, 9 AM&ndash;12 PM</span></p>
+        <span class="badge neutral">Returned</span>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== STUDENT: HOLDS & FINES ===================== -->
+  <section id="student-holds" class="page">
+
+    <div class="page-header">
+      <h1>Holds &amp; fines</h1>
+    </div>
+
+    <div class="alert-banner">
+      <i class="ti ti-lock"></i>
+      <div>
+        <strong>Account hold active</strong>
+        <p>Damage reported on returned boom mic (Jun 24). Resolve with an admin to lift this hold.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Fine history</h3>
+      <div class="row">
+        <p><span class="item-title">Tripod &mdash; late return (1 day)</span><br><span class="item-meta">Jun 23</span></p>
+        <span class="badge danger">$5 outstanding</span>
+      </div>
+      <div class="row">
+        <p><span class="item-title">Lighting kit &mdash; late return (1 day)</span><br><span class="item-meta">May 10</span></p>
+        <span class="badge neutral">$5 paid</span>
+      </div>
+      <p class="helper-note">Fines and holds are resolved in person with an admin &mdash; online payment isn&rsquo;t available yet.</p>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: DASHBOARD ===================== -->
+  <section id="admin-dashboard" class="page">
+
+    <div class="page-header">
+      <h1>Admin dashboard</h1>
+      <div class="actions">
+        <button class="btn" onclick="showPage('admin-items')"><i class="ti ti-plus" style="margin-right:6px;"></i>Add item</button>
+        <button class="btn" onclick="showPage('admin-locations')"><i class="ti ti-map-pin" style="margin-right:6px;"></i>Locations</button>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric warning"><p class="label">Pending approvals</p><p class="value">6</p></div>
+      <div class="metric"><p class="label">Checking out today</p><p class="value">14</p></div>
+      <div class="metric"><p class="label">Returning today</p><p class="value">9</p></div>
+      <div class="metric danger"><p class="label">Open holds</p><p class="value">3</p></div>
+    </div>
+
+    <div class="columns">
+      <div class="card" style="margin-bottom:0;">
+        <h3>Approval queue</h3>
+        <div class="row">
+          <p><span class="item-title">M. Alvarez &mdash; Drone kit</span><br><span class="item-meta">Field House &middot; Jul 2, 10 AM&ndash;2 PM</span></p>
+          <div class="icon-actions">
+            <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+            <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+          </div>
+        </div>
+        <div class="row">
+          <p><span class="item-title">Prof. Chen &mdash; Camera kit (recurring)</span><br><span class="item-meta">Studio A &middot; Every Tue, 1&ndash;3 PM</span></p>
+          <div class="icon-actions">
+            <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+            <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+          </div>
+        </div>
+        <div class="row">
+          <p><span class="item-title">J. Patel &mdash; Lighting + grip kit</span><br><span class="item-meta">Studio B &middot; Jun 30, 9 AM&ndash;12 PM</span></p>
+          <div class="icon-actions">
+            <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+            <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+          </div>
+        </div>
+        <button class="btn" style="margin-top:14px; width:100%;" onclick="showPage('admin-approvals')">View all pending requests</button>
+      </div>
+
+      <div class="card" style="margin-bottom:0;">
+        <h3>Needs attention</h3>
+        <div class="notif"><i class="ti ti-clock-exclamation" style="color:var(--danger-text);"></i><p>Boom mic #4 &mdash; 2 days overdue<br><span class="time">K. Nguyen</span></p></div>
+        <div class="notif"><i class="ti ti-alert-triangle" style="color:var(--warning-text);"></i><p>Drone battery flagged yellow<br><span class="time">Returned today</span></p></div>
+        <div class="notif"><i class="ti ti-box-off" style="color:var(--text-secondary);"></i><p>Tripods low &mdash; 1 of 5 available<br><span class="time">Studio A</span></p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Most reserved this week</h3>
+      <div class="bar-row"><span class="label">Camera kit A</span><div class="bar-track"><div class="bar-fill" style="width:90%;"></div></div><span class="count">18</span></div>
+      <div class="bar-row"><span class="label">Lighting kit</span><div class="bar-track"><div class="bar-fill" style="width:65%;"></div></div><span class="count">13</span></div>
+      <div class="bar-row"><span class="label">Drone kit</span><div class="bar-track"><div class="bar-fill" style="width:45%;"></div></div><span class="count">9</span></div>
+      <div class="bar-row"><span class="label">Boom mic</span><div class="bar-track"><div class="bar-fill" style="width:30%;"></div></div><span class="count">6</span></div>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: APPROVAL QUEUE ===================== -->
+  <section id="admin-approvals" class="page">
+
+    <div class="page-header">
+      <h1>Approval queue</h1>
+    </div>
+
+    <div class="pill-tabs">
+      <button class="pill-tab active">All (5)</button>
+      <button class="pill-tab">Standard</button>
+      <button class="pill-tab">Recurring</button>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <p><span class="item-title">M. Alvarez &mdash; Drone kit</span><br><span class="item-meta">Field House &middot; Jul 2, 10 AM&ndash;2 PM</span></p>
+        <div class="icon-actions">
+          <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+          <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div class="row">
+        <p><span class="item-title">Prof. Chen &mdash; Camera kit (recurring)</span><br><span class="item-meta">Studio A &middot; Every Tue, 1&ndash;3 PM</span></p>
+        <div class="icon-actions">
+          <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+          <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div class="row">
+        <p><span class="item-title">J. Patel &mdash; Lighting + grip kit</span><br><span class="item-meta">Studio B &middot; Jun 30, 9 AM&ndash;12 PM</span></p>
+        <div class="icon-actions">
+          <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+          <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div class="row">
+        <p><span class="item-title">S. Kim &mdash; Audio recorder kit</span><br><span class="item-meta">Studio A &middot; Jun 29, 1&ndash;3 PM</span></p>
+        <div class="icon-actions">
+          <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+          <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div class="row">
+        <p><span class="item-title">T. Brooks &mdash; Drone kit</span><br><span class="item-meta">Field House &middot; Jul 5, 9&ndash;11 AM</span></p>
+        <div class="icon-actions">
+          <button class="icon-btn approve" title="Approve" onclick="alert('This would approve the reservation and notify the student.')"><i class="ti ti-check"></i></button>
+          <button class="icon-btn deny" title="Deny" onclick="alert('This would open a reason field, then notify the student of the denial.')"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: ITEMS & KITS ===================== -->
+  <section id="admin-items" class="page">
+
+    <div class="page-header">
+      <h1>Items &amp; kits</h1>
+      <button class="btn btn-accent" onclick="alert('This would open the add new item form.')"><i class="ti ti-plus" style="margin-right:6px;"></i>Add item</button>
+    </div>
+
+    <div class="subtabs">
+      <button class="subtab-btn active" id="items-tab-items" onclick="showItemsTab('items')">Items</button>
+      <button class="subtab-btn" id="items-tab-kits" onclick="showItemsTab('kits')">Kits</button>
+    </div>
+
+    <div class="subview active" id="items-items">
+      <div class="card">
+        <table class="data-table">
+          <tr><th>Name</th><th>Location</th><th>Price</th><th>Quality</th><th>Tier access</th><th></th></tr>
+          <tr>
+            <td>Camera kit A</td><td>Studio A</td><td>$1,200</td>
+            <td><span class="status-dot" style="background:var(--success-text);"></span>Green</td>
+            <td>Intermediate+</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+          <tr>
+            <td>Lighting kit</td><td>Studio B</td><td>$450</td>
+            <td><span class="status-dot" style="background:var(--success-text);"></span>Green</td>
+            <td>Beginner+</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+          <tr>
+            <td>Boom mic</td><td>Studio A</td><td>$180</td>
+            <td><span class="status-dot" style="background:var(--warning-text);"></span>Yellow</td>
+            <td>Beginner+</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+          <tr>
+            <td>Tripod</td><td>Studio A</td><td>$90</td>
+            <td><span class="status-dot" style="background:var(--success-text);"></span>Green</td>
+            <td>Beginner+</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+          <tr>
+            <td>Drone kit</td><td>Field House</td><td>$2,400</td>
+            <td><span class="status-dot" style="background:var(--success-text);"></span>Green</td>
+            <td>Advanced</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+          <tr>
+            <td>Cinema camera</td><td>Studio A</td><td>$3,800</td>
+            <td><span class="status-dot" style="background:var(--danger-text);"></span>Red</td>
+            <td>Advanced</td>
+            <td><button class="icon-btn" onclick="alert('This would open the edit item form.')"><i class="ti ti-edit"></i></button></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="subview" id="items-kits">
+      <div class="item-grid">
+        <div class="item-card">
+          <div class="icon-wrap"><i class="ti ti-package"></i></div>
+          <p class="item-name">Camera kit A</p>
+          <p class="item-sub">Camera body, lens, 2x battery</p>
+          <div class="item-badges"><span class="badge success">Available</span></div>
+          <button class="btn" onclick="alert('This would open the kit editor.')">Edit kit</button>
+        </div>
+        <div class="item-card">
+          <div class="icon-wrap"><i class="ti ti-package"></i></div>
+          <p class="item-name">Lighting + grip kit</p>
+          <p class="item-sub">2x LED panel, 2x stand, diffuser</p>
+          <div class="item-badges"><span class="badge danger">Unavailable</span></div>
+          <button class="btn" onclick="alert('This would open the kit editor.')">Edit kit</button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: LOCATIONS ===================== -->
+  <section id="admin-locations" class="page">
+
+    <div class="page-header">
+      <h1>Locations</h1>
+      <button class="btn btn-accent" onclick="alert('This would open the add new location form.')"><i class="ti ti-plus" style="margin-right:6px;"></i>Add location</button>
+    </div>
+
+    <div class="location-grid">
+      <div class="location-card">
+        <p class="item-name">Studio A</p>
+        <p class="item-sub">Media Building, Room 110</p>
+        <div class="location-foot"><span class="badge neutral">38 items</span><button class="icon-btn" onclick="alert('This would open the edit location form.')"><i class="ti ti-edit"></i></button></div>
+      </div>
+      <div class="location-card">
+        <p class="item-name">Studio B</p>
+        <p class="item-sub">Media Building, Room 114</p>
+        <div class="location-foot"><span class="badge neutral">22 items</span><button class="icon-btn" onclick="alert('This would open the edit location form.')"><i class="ti ti-edit"></i></button></div>
+      </div>
+      <div class="location-card">
+        <p class="item-name">Field House</p>
+        <p class="item-sub">Athletics Annex, Bay 2</p>
+        <div class="location-foot"><span class="badge neutral">11 items</span><button class="icon-btn" onclick="alert('This would open the edit location form.')"><i class="ti ti-edit"></i></button></div>
+      </div>
+      <div class="location-card">
+        <p class="item-name">Equipment Cage</p>
+        <p class="item-sub">Media Building, Basement</p>
+        <div class="location-foot"><span class="badge neutral">64 items</span><button class="icon-btn" onclick="alert('This would open the edit location form.')"><i class="ti ti-edit"></i></button></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: USERS ===================== -->
+  <section id="admin-users" class="page">
+
+    <div class="page-header">
+      <h1>Users</h1>
+    </div>
+
+    <div class="filter-bar">
+      <input class="search-input" type="text" placeholder="Search by name or email...">
+      <select class="filter-select"><option>All roles</option><option>Student</option><option>Worker</option><option>Admin</option><option>Professor</option></select>
+    </div>
+
+    <div class="card">
+      <table class="data-table">
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Tier</th><th>Status</th><th></th></tr>
+        <tr>
+          <td>Jordan Lee</td><td>jordan.lee@uni.edu</td><td>Student</td><td>Intermediate</td>
+          <td><span class="badge success">Active</span></td>
+          <td><button class="icon-btn" onclick="alert('This would let an admin change this student&#39;s tier.')"><i class="ti ti-edit"></i></button></td>
+        </tr>
+        <tr>
+          <td>K. Nguyen</td><td>k.nguyen@uni.edu</td><td>Student</td><td>Beginner</td>
+          <td><span class="badge danger">Hold</span></td>
+          <td><button class="icon-btn" onclick="alert('This would let an admin change this student&#39;s tier.')"><i class="ti ti-edit"></i></button></td>
+        </tr>
+        <tr>
+          <td>M. Alvarez</td><td>m.alvarez@uni.edu</td><td>Student</td><td>Advanced</td>
+          <td><span class="badge success">Active</span></td>
+          <td><button class="icon-btn" onclick="alert('This would let an admin change this student&#39;s tier.')"><i class="ti ti-edit"></i></button></td>
+        </tr>
+        <tr>
+          <td>D. Foster</td><td>d.foster@uni.edu</td><td>Worker</td><td>&mdash;</td>
+          <td><span class="badge success">Active</span></td>
+          <td><button class="icon-btn" onclick="alert('This would let an admin promote this worker to admin.')"><i class="ti ti-arrow-up"></i></button></td>
+        </tr>
+        <tr>
+          <td>A. Rivera</td><td>a.rivera@uni.edu</td><td>Admin</td><td>&mdash;</td>
+          <td><span class="badge success">Active</span></td>
+          <td><button class="icon-btn" onclick="alert('This would let another admin demote this admin back to worker.')"><i class="ti ti-arrow-down"></i></button></td>
+        </tr>
+        <tr>
+          <td>Prof. Chen</td><td>chen@uni.edu</td><td>Professor (Full-time)</td><td>&mdash;</td>
+          <td><span class="badge success">Active</span></td>
+          <td><button class="icon-btn" onclick="alert('This would open this professor&#39;s access settings.')"><i class="ti ti-edit"></i></button></td>
+        </tr>
+      </table>
+    </div>
+
+  </section>
+
+  <!-- ===================== ADMIN: REPORTS ===================== -->
+  <section id="admin-reports" class="page">
+
+    <div class="page-header">
+      <h1>Reports</h1>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><p class="label">Utilization rate</p><p class="value">78%</p></div>
+      <div class="metric"><p class="label">Avg. reservation lead time</p><p class="value">4.2 days</p></div>
+      <div class="metric warning"><p class="label">Overdue items</p><p class="value">2</p></div>
+      <div class="metric"><p class="label">Reservations this month</p><p class="value">142</p></div>
+    </div>
+
+    <div class="columns">
+      <div class="card" style="margin-bottom:0;">
+        <h3>Most reserved this month</h3>
+        <div class="bar-row"><span class="label">Camera kit A</span><div class="bar-track"><div class="bar-fill" style="width:90%;"></div></div><span class="count">18</span></div>
+        <div class="bar-row"><span class="label">Lighting kit</span><div class="bar-track"><div class="bar-fill" style="width:65%;"></div></div><span class="count">13</span></div>
+        <div class="bar-row"><span class="label">Drone kit</span><div class="bar-track"><div class="bar-fill" style="width:45%;"></div></div><span class="count">9</span></div>
+        <div class="bar-row"><span class="label">Boom mic</span><div class="bar-track"><div class="bar-fill" style="width:30%;"></div></div><span class="count">6</span></div>
+      </div>
+
+      <div class="card" style="margin-bottom:0;">
+        <h3>Reservations by category</h3>
+        <div class="bar-row"><span class="label">Camera</span><div class="bar-track"><div class="bar-fill" style="width:80%;"></div></div><span class="count">41%</span></div>
+        <div class="bar-row"><span class="label">Audio</span><div class="bar-track"><div class="bar-fill" style="width:50%;"></div></div><span class="count">26%</span></div>
+        <div class="bar-row"><span class="label">Lighting</span><div class="bar-track"><div class="bar-fill" style="width:35%;"></div></div><span class="count">18%</span></div>
+        <div class="bar-row"><span class="label">Grip</span><div class="bar-track"><div class="bar-fill" style="width:28%;"></div></div><span class="count">15%</span></div>
+      </div>
+    </div>
+
+  </section>
+
+</div>
+
+<script>
+  function setRole(role) {
+    document.querySelectorAll('.role-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.getElementById('role-' + role).classList.add('active');
+
+    document.querySelectorAll('.nav-list').forEach(function (n) { n.classList.remove('active'); });
+    document.getElementById('nav-' + role).classList.add('active');
+
+    document.querySelectorAll('.sidebar-footer').forEach(function (f) { f.classList.remove('active'); });
+    document.getElementById('footer-' + role).classList.add('active');
+
+    showPage(role + '-dashboard');
+  }
+
+  function showPage(pageId) {
+    document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
+    document.getElementById(pageId).classList.add('active');
+
+    document.querySelectorAll('.nav-item').forEach(function (n) {
+      n.classList.toggle('active', n.getAttribute('data-page') === pageId);
+    });
+  }
+
+  function showItemsTab(name) {
+    document.getElementById('items-items').classList.toggle('active', name === 'items');
+    document.getElementById('items-kits').classList.toggle('active', name === 'kits');
+    document.getElementById('items-tab-items').classList.toggle('active', name === 'items');
+    document.getElementById('items-tab-kits').classList.toggle('active', name === 'kits');
+  }
+</script>
+
+</body>
+</html>
