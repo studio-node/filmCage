@@ -1,6 +1,6 @@
 -- ============================================================
 -- The Film Cage — Database Schema
--- Version: 2.0  |  September 2026
+-- Version: 2.1  |  September 2026
 -- Database: PostgreSQL via Supabase
 -- Auth:     Supabase Auth (auth.users)
 --
@@ -10,9 +10,16 @@
 -- a quantity counter, and the role hierarchy grows to
 -- student / staff / supervisor / admin / professor.
 --
+-- v2.1 folds in the client-feedback round from 9/23: per-crew-member
+-- pickup time overrides, fine-escalation rates, 3-strike auto-block,
+-- a "missing" unit condition, the waitlist offer/expiry workflow, and
+-- admin-only termination of recurring (ongoing) reservations.
+--
 -- Full rationale per section: docs/schema-design.md
--- Lines tagged "-- OPEN QUESTION" are a placeholder decision, not a
--- confirmed one — see that doc's "Open questions" section.
+-- One question is still open (whether capstone pre-pickup meetings
+-- can be handled by Staff/Supervisor or must be Admin-only) — see
+-- that doc's "Open questions" section. It has no schema impact either
+-- way, so it isn't blocking this migration.
 -- ============================================================
 
 -- ============================================================
@@ -28,9 +35,13 @@ create type student_tier as enum ('beginner', 'intermediate', 'advanced');
 create type strike_reason as enum ('damage', 'late_return', 'behavioral');
 create type day_of_week_enum as enum ('monday','tuesday','wednesday','thursday','friday','saturday','sunday');
 create type category_kind as enum ('direct', 'general');
-create type unit_condition as enum ('good', 'caution', 'damaged');
+-- 'missing' covers a unit that couldn't be found at return (or is
+-- discovered missing later) — folded into the condition scale itself
+-- rather than a separate boolean, and ranked worse than 'damaged'
+-- (see item_units_condition_guard's rank_map below).
+create type unit_condition as enum ('good', 'caution', 'damaged', 'missing');
 create type reservation_status as enum (
-  'pending', 'denied', 'waitlisted',
+  'pending', 'denied', 'waitlisted', 'waitlist_offered', 'cancelled',
   'awaiting_appointment', 'awaiting_schedule',
   'approved', 'active', 'completed'
 );
@@ -44,7 +55,15 @@ create type notification_type as enum (
   'account_suspended', 'condition_downgrade_flag', 'role_changed', 'tier_reconfirm_needed'
 );
 create type notification_channel as enum ('in_app', 'email');
-create type semester_task_key as enum ('location_hours', 'closures', 'tier_reset', 'class_list', 'staff_roles');
+create type semester_task_key as enum (
+  'location_hours', 'closures', 'tier_reset', 'class_list', 'staff_roles',
+  'recurring_equipment_requests' -- ask professors to (re)submit their ongoing/recurring equipment needs for the new semester
+);
+-- Queue state for a reservation waiting on an item_model that's fully
+-- checked out. 'waiting' = in line; 'offered' = a unit just freed up
+-- and this student has 48 hours to confirm; 'confirmed'/'declined'/
+-- 'expired' are terminal outcomes for that offer.
+create type waitlist_entry_status as enum ('waiting', 'offered', 'confirmed', 'declined', 'expired');
 
 -- ============================================================
 -- HELPER: touch updated_at
@@ -317,6 +336,12 @@ create table public.reservations (
   dropoff_time                time,
   scheduled                   boolean not null default false,
   is_group_reservation        boolean not null default false,
+  -- Crew reservations only. false (default): the crew comes together,
+  -- or the director (the student who made the reservation) is
+  -- responsible for picking up all equipment. true: each named crew
+  -- member may set their own pickup/dropoff time for their assigned
+  -- gear (see reservation_crew.pickup_time_override below).
+  allow_individual_pickup_times boolean not null default false,
   denial_reason               text,
   admin_notes                 text,
   -- created_by may differ from student_id when staff/admin creates on a student's behalf
@@ -356,7 +381,6 @@ create table public.item_units (
   unit_code                text not null,          -- e.g. "EQ-102-A"
   condition                unit_condition not null default 'good',
   condition_note           text,
-  is_missing               boolean not null default false, -- OPEN QUESTION: keep as its own flag, or fold into `condition`? (see docs/schema-design.md)
   current_reservation_id   uuid references public.reservations(id),
   created_at               timestamptz not null default now(),
   updated_at               timestamptz not null default now(),
@@ -390,14 +414,44 @@ create table public.condition_reviews (
 );
 
 -- ============================================================
+-- WAITLIST
+-- Per-item queue for reservations that couldn't be granted the unit(s)
+-- they need. The app decides *when* a reservation needs to join the
+-- queue (checking item_units availability against the request) and
+-- calls add_to_waitlist(); the functions below own the queue mechanics
+-- from there (see BUSINESS-RULE FUNCTIONS & TRIGGERS).
+-- ============================================================
+create table public.waitlist_entries (
+  id                uuid primary key default gen_random_uuid(),
+  reservation_id    uuid not null references public.reservations(id) on delete cascade,
+  item_model_id     uuid not null references public.item_models(id),
+  student_id        uuid not null references public.users(id),
+  status            waitlist_entry_status not null default 'waiting',
+  queue_position    int not null,
+  offered_at        timestamptz,
+  offer_expires_at  timestamptz,   -- offered_at + 48 hours
+  responded_at      timestamptz,
+  created_at        timestamptz not null default now(),
+  unique (reservation_id, item_model_id)
+);
+create index waitlist_entries_queue_idx
+  on public.waitlist_entries (item_model_id, queue_position)
+  where status = 'waiting';
+
+-- ============================================================
 -- CREW / GROUP RESERVATIONS
 -- ============================================================
 create table public.reservation_crew (
   id              uuid primary key default gen_random_uuid(),
   reservation_id  uuid not null references public.reservations(id) on delete cascade,
   user_id         uuid not null references public.users(id),
-  crew_role       text not null,   -- Producer / Camera Operator / Sound / Gaffer-Lighting / Grip / Editor
+  crew_role       text not null,   -- Director (default, set for the student who made the reservation) / Producer / Camera Operator / Sound / Gaffer-Lighting / Grip / Editor
   is_producer     boolean not null default false,
+  -- Only meaningful when the parent reservation has
+  -- allow_individual_pickup_times = true; otherwise this crew member
+  -- follows the reservation's shared pickup_time/dropoff_time.
+  pickup_time_override   time,
+  dropoff_time_override  time,
   created_at      timestamptz not null default now(),
   unique (reservation_id, user_id)
 );
@@ -428,9 +482,8 @@ create table public.checkout_sessions (
 create table public.return_item_statuses (
   reservation_id       uuid not null references public.reservations(id) on delete cascade,
   unit_id              uuid not null references public.item_units(id),
-  condition_at_return  unit_condition not null,
+  condition_at_return  unit_condition not null,   -- condition_at_return = 'missing' replaces the old standalone is_missing flag
   note                 text,
-  is_missing           boolean not null default false,
   created_at           timestamptz not null default now(),
   primary key (reservation_id, unit_id)
 );
@@ -490,6 +543,11 @@ create table public.recurring_reservations (
   approved_by    uuid references public.users(id),
   approved_at    timestamptz,
   denial_reason  text,
+  -- An admin can end an ongoing/recurring reservation at any time
+  -- (e.g. the professor no longer needs the standing gear). Guarded
+  -- below by recurring_reservations_end_guard so only Admin can set it.
+  ended_at       timestamptz,
+  ended_by       uuid references public.users(id),
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
   constraint recurring_date_range check (end_date > start_date)
@@ -541,7 +599,8 @@ declare
   old_rank int;
   new_rank int;
   actor_role user_role;
-  rank_map constant jsonb := '{"damaged": 0, "caution": 1, "good": 2}'::jsonb;
+  -- 'missing' ranks below 'damaged' — the worst state a unit can be in.
+  rank_map constant jsonb := '{"missing": -1, "damaged": 0, "caution": 1, "good": 2}'::jsonb;
 begin
   actor_role := public.current_user_role();
   new_rank := (rank_map ->> new.condition::text)::int;
@@ -644,7 +703,9 @@ begin
     end if;
   end if;
 
-  if requires_approval and new.status not in ('denied', 'active', 'completed') then
+  if requires_approval and new.status not in
+    ('denied', 'active', 'completed', 'cancelled', 'waitlist_offered')
+  then
     new.status := 'pending';
   end if;
 
@@ -660,6 +721,252 @@ create trigger reservations_approval_guard
 -- the same logic, omitted here for brevity) after writing
 -- reservation_items in the same transaction, so a >20-item reservation
 -- is correctly flagged even though the count wasn't known at INSERT time.
+
+-- --- recurring_reservations: only Admin can end an ongoing reservation ---
+create or replace function public.recurring_reservations_end_guard()
+returns trigger language plpgsql as $$
+begin
+  if new.ended_at is not null and old.ended_at is null then
+    if public.current_user_role() <> 'admin' then
+      raise exception 'Only an admin can end an ongoing (recurring) reservation.';
+    end if;
+    new.ended_by := auth.uid();
+  end if;
+  return new;
+end;
+$$;
+create trigger recurring_reservations_end_guard
+  before update of ended_at on public.recurring_reservations
+  for each row execute function public.recurring_reservations_end_guard();
+
+-- --- student_notes: 3rd strike auto-blocks the student -----------------
+-- Resolving/removing a block is Admin-only, enforced separately by
+-- student_profiles_unblock_guard below.
+create or replace function public.student_notes_apply_strike()
+returns trigger language plpgsql as $$
+declare
+  new_count int;
+begin
+  if new.is_strike then
+    update public.student_profiles
+      set strike_count = strike_count + 1
+      where user_id = new.student_id
+      returning strike_count into new_count;
+
+    if new_count >= 3 then
+      update public.student_profiles
+        set is_blocked = true, blocked_at = now(), blocked_by = new.author_id
+        where user_id = new.student_id and is_blocked = false;
+
+      insert into public.notifications (user_id, type, title, body)
+      values (new.student_id, 'account_blocked', 'Account blocked',
+              'Your account has been blocked after a 3rd strike. Contact an admin to resolve this.');
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger student_notes_apply_strike
+  after insert on public.student_notes
+  for each row execute function public.student_notes_apply_strike();
+
+create or replace function public.student_profiles_unblock_guard()
+returns trigger language plpgsql as $$
+begin
+  if old.is_blocked = true and new.is_blocked = false
+     and public.current_user_role() <> 'admin'
+  then
+    raise exception 'Only an admin can remove a student block.';
+  end if;
+  return new;
+end;
+$$;
+create trigger student_profiles_unblock_guard
+  before update of is_blocked on public.student_profiles
+  for each row execute function public.student_profiles_unblock_guard();
+
+-- --- fines: escalating daily rate ---------------------------------------
+-- Day 1 = $5, days 2-3 = $10/day, day 4+ = $25/day (flat per-day rate,
+-- not cumulative-per-day-times-days — current_amount below is the sum
+-- across all days so far).
+-- OPEN QUESTION: no amount/day threshold has been specified yet for
+-- auto-setting student_profiles.checkout_suspended off the back of an
+-- escalating fine — left as a manual staff/admin action for now.
+create or replace function public.fine_rate_for_day(p_day_number int)
+returns numeric(10,2)
+language sql immutable as $$
+  select case
+    when p_day_number <= 1 then 5.00
+    when p_day_number <= 3 then 10.00
+    else 25.00
+  end;
+$$;
+
+create or replace function public.recalculate_fine_amount(p_fine_id uuid)
+returns void language plpgsql as $$
+declare
+  v_days_late int;
+  v_total numeric(10,2) := 0;
+  v_day int;
+begin
+  select days_late into v_days_late from public.fines where id = p_fine_id;
+  if v_days_late is null or v_days_late <= 0 then
+    return;
+  end if;
+  for v_day in 1..v_days_late loop
+    v_total := v_total + public.fine_rate_for_day(v_day);
+  end loop;
+  update public.fines
+    set rate_per_day = public.fine_rate_for_day(v_days_late),
+        current_amount = v_total
+    where id = p_fine_id;
+end;
+$$;
+
+-- Meant to be invoked once/day by an external scheduler (pg_cron or a
+-- Supabase Edge Function on a cron trigger) — bumps days_late for every
+-- open late_return fine and recalculates its amount.
+create or replace function public.escalate_late_fines()
+returns void language plpgsql as $$
+declare
+  r record;
+begin
+  for r in
+    select id from public.fines
+    where fine_type = 'late_return' and status in ('warning', 'active')
+  loop
+    update public.fines set days_late = days_late + 1 where id = r.id;
+    perform public.recalculate_fine_amount(r.id);
+  end loop;
+end;
+$$;
+
+-- --- waitlist: offer / confirm / decline / expire -----------------------
+-- add_to_waitlist(): called by the app once it determines a reservation
+-- can't be granted the requested item right now.
+create or replace function public.add_to_waitlist(
+  p_reservation_id uuid, p_item_model_id uuid, p_student_id uuid
+)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_next_position int;
+  v_id uuid;
+begin
+  select coalesce(max(queue_position), 0) + 1 into v_next_position
+    from public.waitlist_entries where item_model_id = p_item_model_id;
+
+  insert into public.waitlist_entries (reservation_id, item_model_id, student_id, queue_position)
+  values (p_reservation_id, p_item_model_id, p_student_id, v_next_position)
+  returning id into v_id;
+
+  update public.reservations set status = 'waitlisted' where id = p_reservation_id;
+
+  return v_id;
+end;
+$$;
+
+-- Offers the next waiting entry for an item_model a 48-hour window to
+-- confirm. Called when a unit frees up, and again after a decline/expiry
+-- to move on to the next person in line.
+create or replace function public.offer_next_waitlist_entry(p_item_model_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_entry record;
+begin
+  select * into v_entry
+    from public.waitlist_entries
+    where item_model_id = p_item_model_id and status = 'waiting'
+    order by queue_position asc
+    limit 1;
+
+  if not found then
+    return;
+  end if;
+
+  update public.waitlist_entries
+    set status = 'offered', offered_at = now(), offer_expires_at = now() + interval '48 hours'
+    where id = v_entry.id;
+
+  -- Only offered when the reservation doesn't independently require
+  -- staff approval (capstone / >20 items / lead-time / loan-window) —
+  -- the app checks that before calling this function.
+  update public.reservations set status = 'waitlist_offered' where id = v_entry.reservation_id;
+
+  insert into public.notifications (user_id, type, title, body, related_reservation_id)
+  values (
+    v_entry.student_id, 'waitlist_available', 'Equipment now available',
+    'An item you were waitlisted for is available. Confirm within 48 hours or it will be offered to the next student in line.',
+    v_entry.reservation_id
+  );
+end;
+$$;
+
+-- Student confirms they still want the item — approves the reservation
+-- directly, since offer_next_waitlist_entry only makes an offer when no
+-- other approval trigger applies.
+create or replace function public.confirm_waitlist_entry(p_entry_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_reservation_id uuid;
+begin
+  update public.waitlist_entries
+    set status = 'confirmed', responded_at = now()
+    where id = p_entry_id and status = 'offered'
+    returning reservation_id into v_reservation_id;
+
+  if v_reservation_id is null then
+    raise exception 'This waitlist offer is no longer available to confirm.';
+  end if;
+
+  update public.reservations
+    set status = 'approved', approved_at = now(),
+        admin_notes = coalesce(admin_notes || E'\n', '') || 'Auto-approved: confirmed from waitlist.'
+    where id = v_reservation_id;
+end;
+$$;
+
+-- Student declines — the reservation is cancelled and the item moves
+-- down the list to the next waiting entry.
+create or replace function public.decline_waitlist_entry(p_entry_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_reservation_id uuid;
+  v_item_model_id uuid;
+begin
+  update public.waitlist_entries
+    set status = 'declined', responded_at = now()
+    where id = p_entry_id and status = 'offered'
+    returning reservation_id, item_model_id into v_reservation_id, v_item_model_id;
+
+  if v_reservation_id is null then
+    raise exception 'This waitlist offer is no longer available to decline.';
+  end if;
+
+  update public.reservations set status = 'cancelled' where id = v_reservation_id;
+
+  perform public.offer_next_waitlist_entry(v_item_model_id);
+end;
+$$;
+
+-- Meant to be invoked periodically (e.g. hourly, via pg_cron or a
+-- Supabase Edge Function) — expires any offer left unanswered past its
+-- 48-hour window and moves each one to the next person in line.
+create or replace function public.expire_stale_waitlist_offers()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  r record;
+begin
+  for r in
+    select id, reservation_id, item_model_id
+    from public.waitlist_entries
+    where status = 'offered' and offer_expires_at < now()
+  loop
+    update public.waitlist_entries set status = 'expired', responded_at = now() where id = r.id;
+    update public.reservations set status = 'cancelled' where id = r.reservation_id;
+    perform public.offer_next_waitlist_entry(r.item_model_id);
+  end loop;
+end;
+$$;
 
 -- ============================================================
 -- ROW LEVEL SECURITY
@@ -681,6 +988,8 @@ alter table public.condition_reviews enable row level security;
 alter table public.checkout_sessions enable row level security;
 alter table public.fines enable row level security;
 alter table public.notifications enable row level security;
+alter table public.waitlist_entries enable row level security;
+alter table public.recurring_reservations enable row level security;
 
 -- Equipment browsing is open to every signed-in tier, prices included.
 create policy item_models_read_all on public.item_models
@@ -720,9 +1029,27 @@ create policy reservations_update_own_editable_or_staff on public.reservations
     or (
       student_id = auth.uid()
       and (not is_capstone)
-      and status not in ('approved', 'active', 'completed', 'denied')
+      and status not in ('approved', 'active', 'completed', 'denied', 'cancelled', 'waitlist_offered')
     )
   );
+
+create policy waitlist_entries_own_or_staff on public.waitlist_entries
+  for select using (
+    student_id = auth.uid() or public.current_user_role() in ('staff','supervisor','admin')
+  );
+create policy waitlist_entries_write_staff_up on public.waitlist_entries
+  for insert with check (public.current_user_role() in ('staff','supervisor','admin'));
+create policy waitlist_entries_update_staff_up on public.waitlist_entries
+  for update using (public.current_user_role() in ('staff','supervisor','admin'));
+
+create policy recurring_reservations_own_or_staff on public.recurring_reservations
+  for select using (
+    professor_id = auth.uid() or public.current_user_role() in ('staff','supervisor','admin')
+  );
+create policy recurring_reservations_write_staff_up on public.recurring_reservations
+  for insert with check (public.current_user_role() in ('staff','supervisor','admin'));
+create policy recurring_reservations_update_staff_up on public.recurring_reservations
+  for update using (public.current_user_role() in ('staff','supervisor','admin'));
 
 create policy reservation_items_via_reservation on public.reservation_items
   for select using (
@@ -757,7 +1084,8 @@ create policy student_profiles_own_or_staff on public.student_profiles
   );
 
 -- Remaining tables (location_hours, location_closures, kit_items,
--- reservation_units, condition_reviews, checkout_sessions) follow the
+-- reservation_units, condition_reviews, checkout_sessions,
+-- reservation_crew, reservation_assignments, student_notes) follow the
 -- same two patterns above (read: everyone or own-row; write: Staff+)
 -- and are omitted here for length — flag if you want them spelled out
 -- individually before this ships.
