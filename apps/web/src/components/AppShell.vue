@@ -16,7 +16,7 @@ const ALL_ROLES: NavItem['roles'] = ['student', 'staff', 'supervisor', 'admin', 
 
 const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', routeName: 'dashboard', roles: ALL_ROLES, icon: 'grid' },
-  { key: 'catalog', label: 'Browse Equipment', routeName: 'catalog', roles: ALL_ROLES, icon: 'box' },
+  { key: 'browse', label: 'Browse Equipment', routeName: 'browse', roles: ALL_ROLES, icon: 'box' },
   { key: 'reservations', label: 'My Reservations', routeName: null, roles: ALL_ROLES, icon: 'list' },
   { key: 'calendar', label: 'Calendar', routeName: null, roles: ALL_ROLES, icon: 'calendar' },
   { key: 'pickup', label: 'Pickup / Return', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'truck' },

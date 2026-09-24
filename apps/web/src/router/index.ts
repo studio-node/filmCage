@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
 import AppShell from '../components/AppShell.vue'
 import DashboardView from '../views/DashboardView.vue'
-import CatalogView from '../views/CatalogView.vue'
+import BrowseEquipmentView from '../views/BrowseEquipmentView.vue'
 import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
@@ -15,10 +15,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: { name: 'dashboard' } },
         { path: 'dashboard', name: 'dashboard', component: DashboardView },
-        // Renamed "Browse Equipment" in the nav, but keeping the /catalog
-        // path and CatalogView component name for now — task #4 replaces
-        // CatalogView's contents with the real browse-and-reserve build.
-        { path: 'catalog', name: 'catalog', component: CatalogView },
+        { path: 'browse', name: 'browse', component: BrowseEquipmentView },
       ],
     },
   ],
