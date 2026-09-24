@@ -1,0 +1,85 @@
+/* ============================================================
+   DESIGN TOKENS
+   Ported from the approved Loadout mockup (v5). Colors, type
+   scale, radii and shadows live here so every component file
+   reads from the same source of truth.
+
+   One addition beyond the mockup: a --muted tone, used for the
+   real schema's `missing` unit condition. The mockup only had
+   three condition states (good/warn/crit); our schema has four
+   (good/caution/damaged/missing), so `missing` gets its own
+   quieter gray tone rather than being folded into crit/red,
+   since "we don't know where it is" reads differently from
+   "it's broken."
+   ============================================================ */
+:root {
+  --bg: #EEF0EE;
+  --bg-alt: #E4E8E5;
+  --surface: #FFFFFF;
+  --surface-2: #F6F8F6;
+  --border: #D7DCD8;
+  --border-strong: #C1C8C3;
+  --ink: #161A1B;
+  --ink-2: #4B5459;
+  --ink-3: #7C858B;
+  --accent: #2955D6;
+  --accent-strong: #1E3FAE;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E7EDFC;
+  --accent-soft-border: #C7D5F8;
+  --violet: #6E4FCE;
+  --violet-soft: #EEE9FA;
+  --good: #1E8E5A;
+  --good-soft: #E1F4EA;
+  --good-border: #B6E3C9;
+  --warn: #A8710A;
+  --warn-soft: #FBF0DA;
+  --warn-border: #EED8A8;
+  --crit: #C1362B;
+  --crit-soft: #FBE7E4;
+  --crit-border: #F1C3BC;
+  --muted: #62696C;
+  --muted-soft: #E9EBEA;
+  --muted-border: #D2D7D5;
+  --shadow: 0 1px 2px rgba(20, 24, 22, 0.06), 0 8px 24px -12px rgba(20, 24, 22, 0.16);
+  --shadow-lg: 0 12px 32px -8px rgba(20, 24, 22, 0.28);
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+  --font-display: 'Archivo', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  --font-script: 'Caveat', cursive;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181A; --bg-alt: #1A1F21; --surface: #1D2224; --surface-2: #22282A;
+    --border: #2C3436; --border-strong: #3B4548;
+    --ink: #EEF1F0; --ink-2: #B7C0C1; --ink-3: #828C8E;
+    --accent: #6E93F5; --accent-strong: #8FADF8; --accent-ink: #0B1220;
+    --accent-soft: #212D4C; --accent-soft-border: #33447A;
+    --violet: #A78EEB; --violet-soft: #2C2545;
+    --good: #4FC084; --good-soft: #173627; --good-border: #215239;
+    --warn: #E0A83F; --warn-soft: #3B2E14; --warn-border: #5A431C;
+    --crit: #E97B72; --crit-soft: #3D211E; --crit-border: #5C2F2A;
+    --muted: #9AA3A6; --muted-soft: #262B2D; --muted-border: #384042;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #14181A; --bg-alt: #1A1F21; --surface: #1D2224; --surface-2: #22282A;
+  --border: #2C3436; --border-strong: #3B4548;
+  --ink: #EEF1F0; --ink-2: #B7C0C1; --ink-3: #828C8E;
+  --accent: #6E93F5; --accent-strong: #8FADF8; --accent-ink: #0B1220;
+  --accent-soft: #212D4C; --accent-soft-border: #33447A;
+  --violet: #A78EEB; --violet-soft: #2C2545;
+  --good: #4FC084; --good-soft: #173627; --good-border: #215239;
+  --warn: #E0A83F; --warn-soft: #3B2E14; --warn-border: #5A431C;
+  --crit: #E97B72; --crit-soft: #3D211E; --crit-border: #5C2F2A;
+  --muted: #9AA3A6; --muted-soft: #262B2D; --muted-border: #384042;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+}

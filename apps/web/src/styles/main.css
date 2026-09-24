@@ -1,0 +1,8 @@
+/* ============================================================
+   Film Cage design system — entry point.
+   Ported from the approved Loadout mockup (v5). Import order
+   matters: tokens first, then base resets, then components.
+   ============================================================ */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';
