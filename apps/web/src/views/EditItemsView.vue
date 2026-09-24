@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { supabase } from '../lib/supabaseClient'
-import { toneForCondition, conditionLabel, type UnitCondition } from '../lib/conditionStatus'
+import { toneForCondition, conditionLabel, conditionRank, type UnitCondition } from '../lib/conditionStatus'
 
 interface Category {
   id: string
@@ -29,6 +29,11 @@ interface UnitRow {
   id: string | null // null = not yet saved
   unit_code: string
   condition: UnitCondition
+  // The condition this unit had when the drawer was opened (or 'good'
+  // for a brand-new row) — used to detect a real downgrade client-side,
+  // matching item_units_condition_guard()'s rule, so we can ask for a
+  // note before hitting the database instead of after.
+  originalCondition: UnitCondition
   condition_note: string
   qr_code: string
 }
@@ -87,7 +92,18 @@ const savingUnits = ref(false)
 const unitsError = ref('')
 const unitsSaved = ref(false)
 
+// Bumped on every openEdit() call; a fetch only applies its result if
+// it's still the most recent request when it resolves. Without this, a
+// click on a second item before the first item's units finish loading
+// can clobber the correct item's row list with the first item's stale
+// units — and since saveUnits() sends unit_code for every row, those
+// stale codes can collide with the second item's real ones and fail
+// with a database "duplicate key" error that has nothing to do with
+// whatever edit you actually made.
+let editRequestId = 0
+
 async function openEdit(item: ItemModel) {
+  const requestId = ++editRequestId
   activeItem.value = item
   editForm.value = { ...item }
   modelError.value = ''
@@ -101,6 +117,7 @@ async function openEdit(item: ItemModel) {
     .select('id, unit_code, condition, condition_note, qr_code')
     .eq('item_model_id', item.id)
     .order('unit_code')
+  if (requestId !== editRequestId) return // a newer openEdit() has since started; drop this stale result
   if (uErr) {
     unitsError.value = uErr.message
   } else {
@@ -108,6 +125,7 @@ async function openEdit(item: ItemModel) {
       id: u.id,
       unit_code: u.unit_code,
       condition: u.condition as UnitCondition,
+      originalCondition: u.condition as UnitCondition,
       condition_note: u.condition_note ?? '',
       qr_code: u.qr_code ?? '',
     }))
@@ -158,17 +176,69 @@ async function saveModel() {
 function addUnitRow() {
   const numericCodes = units.value.map((u) => parseInt(u.unit_code, 10)).filter((n) => !isNaN(n))
   const next = numericCodes.length > 0 ? Math.max(...numericCodes) + 1 : units.value.length + 1
-  units.value.push({ id: null, unit_code: String(next), condition: 'good', condition_note: '', qr_code: '' })
+  units.value.push({
+    id: null,
+    unit_code: String(next),
+    condition: 'good',
+    originalCondition: 'good',
+    condition_note: '',
+    qr_code: '',
+  })
+}
+
+// Catches the mistakes that would otherwise only surface as an opaque
+// database error after clicking Save: a duplicate unit code or QR code
+// among this item's own units, or a condition downgrade with no note.
+// (The database requires a note on any downgrade —
+// item_units_condition_guard() in the initial schema migration is the
+// source of truth this mirrors.) Returns a specific, actionable
+// message, or '' if everything checks out.
+function validateUnits(): string {
+  const codeSeen = new Map<string, number>()
+  const qrSeen = new Map<string, number>()
+
+  for (const u of units.value) {
+    const code = u.unit_code.trim()
+    if (!code) return 'Every unit needs a code/number.'
+    codeSeen.set(code, (codeSeen.get(code) ?? 0) + 1)
+
+    const qr = u.qr_code.trim()
+    if (qr) qrSeen.set(qr, (qrSeen.get(qr) ?? 0) + 1)
+
+    // A brand-new row starting in anything but Good needs a note too
+    // (same rule the trigger applies on insert); an existing row only
+    // needs one if this save actually moves it to a worse condition.
+    const isDowngrade = u.id
+      ? conditionRank(u.condition) < conditionRank(u.originalCondition)
+      : u.condition !== 'good'
+    if (isDowngrade && !u.condition_note.trim()) {
+      return `Unit #${code} is being set to "${conditionLabel(u.condition)}" — add a note before saving (required for anything less than Good).`
+    }
+  }
+
+  const dupCode = [...codeSeen.entries()].find(([, count]) => count > 1)
+  if (dupCode) return `Unit code "${dupCode[0]}" is used by more than one unit here — codes must be unique.`
+
+  const dupQr = [...qrSeen.entries()].find(([, count]) => count > 1)
+  if (dupQr) return `QR code "${dupQr[0]}" is entered on more than one unit here — each code can only be used once.`
+
+  return ''
 }
 
 async function saveUnits() {
   if (!activeItem.value) return
   unitsError.value = ''
   unitsSaved.value = false
+
+  const problem = validateUnits()
+  if (problem) {
+    unitsError.value = problem
+    return
+  }
+
   savingUnits.value = true
   try {
     for (const u of units.value) {
-      if (!u.unit_code.trim()) throw new Error('Every unit needs a code/number.')
       const payload = {
         item_model_id: activeItem.value.id,
         unit_code: u.unit_code.trim(),
@@ -179,6 +249,7 @@ async function saveUnits() {
       if (u.id) {
         const { error: updErr } = await supabase.from('item_units').update(payload).eq('id', u.id)
         if (updErr) throw updErr
+        u.originalCondition = u.condition
       } else {
         const { data, error: insErr } = await supabase
           .from('item_units')
@@ -187,11 +258,15 @@ async function saveUnits() {
           .single()
         if (insErr) throw insErr
         u.id = data.id
+        u.originalCondition = u.condition
       }
     }
     unitsSaved.value = true
   } catch (e) {
-    unitsError.value = e instanceof Error ? e.message : 'Could not save one or more units (duplicate code or QR?).'
+    // A real, unexpected database error (RLS, a genuine race we didn't
+    // catch above, etc.) — show its actual message rather than
+    // guessing, since validateUnits() already handles the common cases.
+    unitsError.value = e instanceof Error ? e.message : 'Could not save one or more units — please try again.'
   } finally {
     savingUnits.value = false
   }
@@ -335,7 +410,7 @@ async function saveUnits() {
               <option value="damaged">Damaged</option>
               <option value="missing">Missing</option>
             </select>
-            <input v-model="u.condition_note" type="text" placeholder="Condition note" class="qr-input" style="flex: 1; min-width: 120px" />
+            <input v-model="u.condition_note" type="text" placeholder="Condition note (required if downgrading)" class="qr-input" style="flex: 1; min-width: 120px" />
             <input v-model="u.qr_code" type="text" placeholder="QR code" class="qr-input mono" style="flex: 1; min-width: 120px" />
             <span v-if="u.id" class="badge" :class="toneForCondition(u.condition)">{{ conditionLabel(u.condition) }}</span>
             <span v-else class="badge accent">new</span>

@@ -28,6 +28,24 @@ export function toneForCondition(condition: UnitCondition): Tone {
   }
 }
 
+// Matches item_units_condition_guard()'s rank_map exactly (see the
+// initial schema migration's business-rule triggers) — a higher number
+// is a better condition. Used client-side to detect a real downgrade
+// so the UI can require a note before saving, the same rule the
+// database trigger enforces; keep these in sync if the scale changes.
+export function conditionRank(condition: UnitCondition): number {
+  switch (condition) {
+    case 'missing':
+      return -1
+    case 'damaged':
+      return 0
+    case 'caution':
+      return 1
+    case 'good':
+      return 2
+  }
+}
+
 export function conditionLabel(condition: UnitCondition): string {
   switch (condition) {
     case 'good':
