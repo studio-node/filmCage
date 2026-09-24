@@ -47,6 +47,16 @@ const submitting = ref(false)
 const error = ref('')
 const successMessage = ref('')
 
+interface CreatedUnit {
+  id: string
+  unit_code: string
+  qr_code: string
+}
+const createdUnits = ref<CreatedUnit[]>([])
+const savingQr = ref(false)
+const qrError = ref('')
+const qrSaved = ref(false)
+
 function resetForm() {
   name.value = ''
   brand.value = ''
@@ -78,6 +88,8 @@ async function handleSubmit() {
   }
 
   submitting.value = true
+  qrSaved.value = false
+  createdUnits.value = []
   try {
     const { data: newModel, error: modelErr } = await supabase
       .from('item_models')
@@ -97,23 +109,55 @@ async function handleSubmit() {
     if (modelErr) throw modelErr
 
     // Auto-numbered units: quantity 5 -> unit_code '1' through '5'.
-    // qr_code is intentionally omitted — item_units.qr_code has a
-    // column default that generates a unique code automatically.
+    // qr_code is left blank — some equipment already has a physical QR
+    // sticker from before this system existed, so codes are typed (or
+    // scanned) in below rather than generated, and don't have to match
+    // the sequential unit number.
     const unitRows = Array.from({ length: quantity.value }, (_, i) => ({
       item_model_id: newModel.id,
       unit_code: String(i + 1),
     }))
-    const { error: unitsErr } = await supabase.from('item_units').insert(unitRows)
+    const { data: newUnits, error: unitsErr } = await supabase
+      .from('item_units')
+      .insert(unitRows)
+      .select('id, unit_code')
+      .order('unit_code')
     if (unitsErr) throw unitsErr
 
     successMessage.value = `Added "${name.value.trim()}" with ${quantity.value} unit${
       quantity.value === 1 ? '' : 's'
     } (labeled 1–${quantity.value}).`
+    createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '' }))
     resetForm()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not add this item.'
   } finally {
     submitting.value = false
+  }
+}
+
+async function saveQrCodes() {
+  qrError.value = ''
+  qrSaved.value = false
+  const toSave = createdUnits.value.filter((u) => u.qr_code.trim())
+  if (toSave.length === 0) {
+    qrError.value = 'Enter at least one QR code to save, or skip this for now — you can add codes later from Edit Items.'
+    return
+  }
+  savingQr.value = true
+  try {
+    for (const u of toSave) {
+      const { error: updErr } = await supabase
+        .from('item_units')
+        .update({ qr_code: u.qr_code.trim() })
+        .eq('id', u.id)
+      if (updErr) throw updErr
+    }
+    qrSaved.value = true
+  } catch (e) {
+    qrError.value = e instanceof Error ? e.message : 'Could not save one or more QR codes (is one already in use?).'
+  } finally {
+    savingQr.value = false
   }
 }
 </script>
@@ -207,7 +251,8 @@ async function handleSubmit() {
       <p class="field-hint">
         Creates {{ quantity }} unit{{ quantity === 1 ? '' : 's' }} labeled 1{{
           quantity > 1 ? `–${quantity}` : ''
-        }}, each in "good" condition with its own auto-generated QR code.
+        }}, each in "good" condition. QR codes aren't generated — you'll get a place to type in the
+        code from an existing sticker (or leave it blank) right after adding.
       </p>
 
       <p v-if="error" class="error-note">{{ error }}</p>
@@ -219,11 +264,40 @@ async function handleSubmit() {
         </button>
       </div>
     </div>
+
+    <div v-if="createdUnits.length > 0" class="card" style="max-width: 640px; display: flex; flex-direction: column; gap: 12px">
+      <div class="section-title">Assign QR codes (optional)</div>
+      <p style="color: var(--ink-2)">
+        If any of these units already have a physical QR sticker, type or scan the code in here. Leave
+        blank to assign one later from Edit Items.
+      </p>
+      <div v-for="u in createdUnits" :key="u.id" class="unit-line">
+        <span class="mono" style="width: 32px">#{{ u.unit_code }}</span>
+        <input v-model="u.qr_code" type="text" placeholder="e.g. FC-3K9QZ2" class="qr-input" />
+      </div>
+      <p v-if="qrError" class="error-note">{{ qrError }}</p>
+      <p v-if="qrSaved" style="color: var(--good); font-weight: 600">QR codes saved.</p>
+      <div>
+        <button class="btn" :disabled="savingQr" @click="saveQrCodes">
+          {{ savingQr ? 'Saving…' : 'Save QR codes' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .error-note {
   color: var(--crit);
+}
+.qr-input {
+  flex: 1;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  font-family: var(--font-mono);
 }
 </style>

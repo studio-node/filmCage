@@ -4,7 +4,10 @@ import AppShell from '../components/AppShell.vue'
 import DashboardView from '../views/DashboardView.vue'
 import BrowseEquipmentView from '../views/BrowseEquipmentView.vue'
 import AdminAddItemView from '../views/AdminAddItemView.vue'
+import EditItemsView from '../views/EditItemsView.vue'
 import { useAuthStore } from '../stores/auth'
+
+const ADMIN_ROUTE_NAMES = new Set(['admin', 'admin-edit'])
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,6 +21,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'dashboard', component: DashboardView },
         { path: 'browse', name: 'browse', component: BrowseEquipmentView },
         { path: 'admin', name: 'admin', component: AdminAddItemView },
+        { path: 'admin/items', name: 'admin-edit', component: EditItemsView },
       ],
     },
   ],
@@ -35,10 +39,11 @@ router.beforeEach((to) => {
     return { name: 'dashboard' }
   }
   // Route-level guard as defense in depth — the sidebar already hides
-  // this link from non-admins, but RLS is what actually stops a write;
-  // this just keeps a non-admin from landing on the page via a typed
-  // URL and hitting a wall of insert errors instead of a clean redirect.
-  if (to.name === 'admin' && auth.role !== 'admin') {
+  // these links from non-admins, but RLS is what actually stops a
+  // write; this just keeps a non-admin from landing on the page via a
+  // typed URL and hitting a wall of insert errors instead of a clean
+  // redirect.
+  if (typeof to.name === 'string' && ADMIN_ROUTE_NAMES.has(to.name) && auth.role !== 'admin') {
     return { name: 'dashboard' }
   }
 })
