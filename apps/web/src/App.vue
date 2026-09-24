@@ -1,9 +1,6 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useAuthStore } from './stores/auth'
-
-const auth = useAuthStore()
-onMounted(() => auth.init())
+// Session init now happens in main.ts, before the router is installed —
+// see the comment there. This stays a plain router outlet.
 </script>
 
 <template>

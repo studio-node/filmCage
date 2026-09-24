@@ -8,29 +8,34 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as User | null,
     role: null as UserRole | null,
+    fullName: null as string | null,
     loading: true,
   }),
   actions: {
     async init() {
       const { data } = await supabase.auth.getSession()
       this.user = data.session?.user ?? null
-      if (this.user) await this.loadRole()
+      if (this.user) await this.loadProfile()
       this.loading = false
 
       supabase.auth.onAuthStateChange(async (_event, session) => {
         this.user = session?.user ?? null
         this.role = null
-        if (this.user) await this.loadRole()
+        this.fullName = null
+        if (this.user) await this.loadProfile()
       })
     },
-    async loadRole() {
+    async loadProfile() {
       if (!this.user) return
       const { data, error } = await supabase
         .from('users')
-        .select('role')
+        .select('role, full_name')
         .eq('id', this.user.id)
         .single()
-      if (!error) this.role = (data?.role as UserRole) ?? null
+      if (!error) {
+        this.role = (data?.role as UserRole) ?? null
+        this.fullName = data?.full_name ?? null
+      }
     },
     async signIn(email: string, password: string) {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
