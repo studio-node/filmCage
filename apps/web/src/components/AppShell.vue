@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useCartStore } from '../stores/cart'
 import { supabase } from '../lib/supabaseClient'
+import CartPanel from './CartPanel.vue'
 
 interface NavItem {
   key: string
@@ -21,12 +23,14 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'calendar', label: 'Calendar', routeName: null, roles: ALL_ROLES, icon: 'calendar' },
   { key: 'pickup', label: 'Pickup / Return', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'truck' },
   { key: 'analytics', label: 'Analytics', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'chart' },
-  { key: 'admin', label: 'Admin', routeName: null, roles: ['admin'], icon: 'shield' },
+  { key: 'admin', label: 'Add Items (Admin)', routeName: 'admin', roles: ['admin'], icon: 'shield' },
 ]
 
 const auth = useAuthStore()
+const cart = useCartStore()
 const router = useRouter()
 const sidebarOpen = ref(false)
+const cartOpen = ref(false)
 
 const visibleNav = computed(() =>
   NAV_ITEMS.filter((item) => !auth.role || item.roles.includes(auth.role))
@@ -53,6 +57,7 @@ async function loadUnreadCount() {
 loadUnreadCount()
 
 async function handleSignOut() {
+  cart.clear()
   await auth.signOut()
   router.push({ name: 'login' })
 }
@@ -76,6 +81,16 @@ async function handleSignOut() {
       </div>
 
       <div class="topbar-right">
+        <button
+          v-if="auth.role === 'student' || !auth.role"
+          class="icon-btn"
+          aria-label="Cart"
+          title="Your reservation"
+          @click="cartOpen = true"
+        >
+          🛒
+          <span v-if="cart.count > 0" class="dot"></span>
+        </button>
         <button class="icon-btn" aria-label="Notifications" title="Notifications">
           🔔
           <span v-if="unreadCount > 0" class="dot"></span>
@@ -110,6 +125,8 @@ async function handleSignOut() {
         <router-view />
       </main>
     </div>
+
+    <CartPanel :open="cartOpen" @close="cartOpen = false" />
   </div>
 </template>
 

@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
+import { useCartStore } from '../stores/cart'
 import { toneForCondition, conditionLabel, type UnitCondition } from '../lib/conditionStatus'
 
 interface Category {
@@ -39,6 +40,7 @@ const TIER_RANK: Record<string, number> = { beginner: 0, intermediate: 1, advanc
 const AVAILABLE_CONDITIONS: UnitCondition[] = ['good', 'caution']
 
 const auth = useAuthStore()
+const cart = useCartStore()
 
 const loading = ref(true)
 const error = ref('')
@@ -165,97 +167,45 @@ const filteredItems = computed(() => {
 
 // --- drawer -----------------------------------------------------------
 const activeItem = ref<ItemModel | null>(null)
-const drawerMode = ref<'view' | 'reserve'>('view')
 const reserving = ref(false)
 const formError = ref('')
-
-const reservationName = ref('')
-const pickupDate = ref('')
-const dropoffDate = ref('')
 const quantity = ref(1)
-
-function defaultDateStrings() {
-  const pickup = new Date()
-  pickup.setDate(pickup.getDate() + 3) // matches the 3-day minimum lead time
-  const dropoff = new Date(pickup)
-  dropoff.setDate(dropoff.getDate() + 3) // matches the default 3-day loan window
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
-  return { pickup: fmt(pickup), dropoff: fmt(dropoff) }
-}
 
 function openDrawer(item: ItemModel) {
   activeItem.value = item
-  drawerMode.value = 'view'
+  const { available } = availability(item.id)
+  quantity.value = Math.min(1, available) || 1
   formError.value = ''
 }
 function closeDrawer() {
   activeItem.value = null
-  drawerMode.value = 'view'
 }
 
-function openReserveForm() {
+function addToCart() {
   if (!activeItem.value) return
-  const { available } = availability(activeItem.value.id)
-  const { pickup, dropoff } = defaultDateStrings()
-  reservationName.value = `${auth.fullName?.split(' ')[0] ?? 'My'} — ${activeItem.value.name}`
-  pickupDate.value = pickup
-  dropoffDate.value = dropoff
-  quantity.value = Math.min(1, available)
   formError.value = ''
-  drawerMode.value = 'reserve'
-}
-
-async function submitReservation() {
-  if (!activeItem.value || !auth.user) return
-  formError.value = ''
-  if (!reservationName.value.trim()) {
-    formError.value = 'Give this reservation a name.'
-    return
-  }
-  if (!pickupDate.value || !dropoffDate.value) {
-    formError.value = 'Pickup and drop-off dates are both required.'
-    return
-  }
-  if (dropoffDate.value <= pickupDate.value) {
-    formError.value = 'Drop-off must be after pickup.'
-    return
-  }
   const { available } = availability(activeItem.value.id)
   if (quantity.value < 1 || quantity.value > available) {
     formError.value = `Quantity must be between 1 and ${available} (what's currently available).`
     return
   }
-
-  reserving.value = true
-  try {
-    const { data: resv, error: rErr } = await supabase
-      .from('reservations')
-      .insert({
-        reservation_name: reservationName.value.trim(),
-        student_id: auth.user.id,
-        location_id: activeItem.value.location_id,
-        created_by: auth.user.id,
-        pickup_date: pickupDate.value,
-        dropoff_date: dropoffDate.value,
-      })
-      .select('id')
-      .single()
-    if (rErr) throw rErr
-
-    const { error: iErr } = await supabase.from('reservation_items').insert({
-      reservation_id: resv.id,
-      item_model_id: activeItem.value.id,
-      quantity: quantity.value,
-    })
-    if (iErr) throw iErr
-
-    pushToast(`Reservation request submitted for ${activeItem.value.name} — pending staff approval.`)
-    closeDrawer()
-  } catch (e) {
-    formError.value = e instanceof Error ? e.message : 'Could not submit the reservation.'
-  } finally {
-    reserving.value = false
+  const location = locationById.value.get(activeItem.value.location_id)
+  const rejection = cart.addItem(
+    {
+      id: activeItem.value.id,
+      name: activeItem.value.name,
+      locationId: activeItem.value.location_id,
+      locationName: location?.name ?? 'this location',
+    },
+    quantity.value,
+    available
+  )
+  if (rejection) {
+    formError.value = rejection
+    return
   }
+  pushToast(`Added ${quantity.value} × ${activeItem.value.name} to your reservation.`)
+  closeDrawer()
 }
 
 async function joinWaitlist() {
@@ -464,55 +414,29 @@ function pushToast(message: string) {
           {{ studentTier }}.
         </div>
 
-        <template v-else-if="drawerMode === 'view'">
-          <button
-            v-if="availability(activeItem.id).available > 0"
-            class="btn primary"
-            @click="openReserveForm"
-          >
-            Add to reservation
-          </button>
-          <button v-else class="btn" :disabled="reserving" @click="joinWaitlist">
-            {{ reserving ? 'Joining…' : 'Join waitlist' }}
-          </button>
+        <template v-else-if="availability(activeItem.id).available > 0">
+          <div class="qty-stepper">
+            <button type="button" @click="quantity = Math.max(1, quantity - 1)" :disabled="quantity <= 1">
+              −
+            </button>
+            <span class="qty-num">{{ quantity }}</span>
+            <button
+              type="button"
+              @click="quantity = Math.min(availability(activeItem.id).available, quantity + 1)"
+              :disabled="quantity >= availability(activeItem.id).available"
+            >
+              +
+            </button>
+          </div>
           <p v-if="formError" class="error-note">{{ formError }}</p>
+          <button class="btn primary" @click="addToCart">Add to reservation</button>
         </template>
 
         <template v-else>
-          <div class="field">
-            <label>Reservation name</label>
-            <input v-model="reservationName" type="text" />
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Pickup date</label>
-              <input v-model="pickupDate" type="date" />
-            </div>
-            <div class="field">
-              <label>Drop-off date</label>
-              <input v-model="dropoffDate" type="date" />
-            </div>
-          </div>
-          <div class="field" style="max-width: 120px">
-            <label>Quantity</label>
-            <input
-              v-model.number="quantity"
-              type="number"
-              min="1"
-              :max="availability(activeItem.id).available"
-            />
-          </div>
-          <p class="field-hint">
-            Pickups under 3 days out, on a Friday, or loans over 3 days need staff approval — every
-            request starts as Pending either way.
-          </p>
           <p v-if="formError" class="error-note">{{ formError }}</p>
-          <div style="display: flex; gap: 8px">
-            <button class="btn primary" :disabled="reserving" @click="submitReservation">
-              {{ reserving ? 'Submitting…' : 'Submit request' }}
-            </button>
-            <button class="btn ghost" @click="drawerMode = 'view'">Cancel</button>
-          </div>
+          <button class="btn" :disabled="reserving" @click="joinWaitlist">
+            {{ reserving ? 'Joining…' : 'Join waitlist' }}
+          </button>
         </template>
       </div>
     </div>
