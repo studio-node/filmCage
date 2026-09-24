@@ -202,7 +202,7 @@ async function saveUnits() {
   <div class="view">
     <div class="view-head">
       <div>
-        <span class="view-eyebrow">Admin</span>
+        <span class="view-eyebrow">Inventory</span>
         <h1>Edit Items</h1>
         <p class="view-desc">
           Update an existing item's details, or manage its individual units — condition, unit

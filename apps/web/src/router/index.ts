@@ -7,7 +7,8 @@ import AdminAddItemView from '../views/AdminAddItemView.vue'
 import EditItemsView from '../views/EditItemsView.vue'
 import { useAuthStore } from '../stores/auth'
 
-const ADMIN_ROUTE_NAMES = new Set(['admin', 'admin-edit'])
+const INVENTORY_ROUTE_NAMES = new Set(['admin', 'admin-edit'])
+const INVENTORY_ROLES = new Set(['staff', 'supervisor', 'admin'])
 
 const router = createRouter({
   history: createWebHistory(),
@@ -39,11 +40,13 @@ router.beforeEach((to) => {
     return { name: 'dashboard' }
   }
   // Route-level guard as defense in depth — the sidebar already hides
-  // these links from non-admins, but RLS is what actually stops a
-  // write; this just keeps a non-admin from landing on the page via a
+  // these links from unauthorized roles, but RLS is what actually stops
+  // a write; this just keeps someone from landing on the page via a
   // typed URL and hitting a wall of insert errors instead of a clean
-  // redirect.
-  if (typeof to.name === 'string' && ADMIN_ROUTE_NAMES.has(to.name) && auth.role !== 'admin') {
+  // redirect. Staff, supervisor, and admin all get these screens — the
+  // underlying RLS policies on item_models/item_units already allow all
+  // three roles to write, so the UI now matches what the database permits.
+  if (typeof to.name === 'string' && INVENTORY_ROUTE_NAMES.has(to.name) && !INVENTORY_ROLES.has(auth.role ?? '')) {
     return { name: 'dashboard' }
   }
 })

@@ -166,7 +166,7 @@ async function saveQrCodes() {
   <div class="view">
     <div class="view-head">
       <div>
-        <span class="view-eyebrow">Admin</span>
+        <span class="view-eyebrow">Inventory</span>
         <h1>Add Items</h1>
         <p class="view-desc">
           Add a new piece of equipment to the catalog. Units are created and numbered

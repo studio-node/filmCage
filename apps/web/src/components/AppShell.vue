@@ -23,8 +23,8 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'calendar', label: 'Calendar', routeName: null, roles: ALL_ROLES, icon: 'calendar' },
   { key: 'pickup', label: 'Pickup / Return', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'truck' },
   { key: 'analytics', label: 'Analytics', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'chart' },
-  { key: 'admin', label: 'Add Items (Admin)', routeName: 'admin', roles: ['admin'], icon: 'shield' },
-  { key: 'admin-edit', label: 'Edit Items (Admin)', routeName: 'admin-edit', roles: ['admin'], icon: 'shield' },
+  { key: 'admin', label: 'Add Items', routeName: 'admin', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
+  { key: 'admin-edit', label: 'Edit Items', routeName: 'admin-edit', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
 ]
 
 const auth = useAuthStore()
