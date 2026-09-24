@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { toneForCondition, conditionLabel, conditionRank, type UnitCondition } from '../lib/conditionStatus'
+import { errorMessage } from '../lib/errors'
 
 interface Category {
   id: string
@@ -84,32 +85,31 @@ const editForm = ref<Partial<ItemModel>>({})
 const units = ref<UnitRow[]>([])
 const unitsLoading = ref(false)
 
-const savingModel = ref(false)
-const modelError = ref('')
-const modelSaved = ref(false)
-
-const savingUnits = ref(false)
-const unitsError = ref('')
-const unitsSaved = ref(false)
+// One button saves everything in the drawer — the item's own fields
+// and every unit row, including condition changes — so there's only
+// ever one place that can be "the thing you forgot to click." Adding a
+// unit stays a separate, purely local action (addUnitRow below) that
+// doesn't touch the database until this save runs.
+const saving = ref(false)
+const saveError = ref('')
+const saveSuccess = ref(false)
 
 // Bumped on every openEdit() call; a fetch only applies its result if
 // it's still the most recent request when it resolves. Without this, a
 // click on a second item before the first item's units finish loading
 // can clobber the correct item's row list with the first item's stale
-// units — and since saveUnits() sends unit_code for every row, those
-// stale codes can collide with the second item's real ones and fail
-// with a database "duplicate key" error that has nothing to do with
-// whatever edit you actually made.
+// units — and since saving sends unit_code for every row, those stale
+// codes can collide with the second item's real ones and fail with a
+// database "duplicate key" error that has nothing to do with whatever
+// edit you actually made.
 let editRequestId = 0
 
 async function openEdit(item: ItemModel) {
   const requestId = ++editRequestId
   activeItem.value = item
   editForm.value = { ...item }
-  modelError.value = ''
-  modelSaved.value = false
-  unitsError.value = ''
-  unitsSaved.value = false
+  saveError.value = ''
+  saveSuccess.value = false
   unitsLoading.value = true
   units.value = []
   const { data, error: uErr } = await supabase
@@ -119,7 +119,7 @@ async function openEdit(item: ItemModel) {
     .order('unit_code')
   if (requestId !== editRequestId) return // a newer openEdit() has since started; drop this stale result
   if (uErr) {
-    unitsError.value = uErr.message
+    saveError.value = uErr.message
   } else {
     units.value = (data ?? []).map((u) => ({
       id: u.id,
@@ -134,43 +134,6 @@ async function openEdit(item: ItemModel) {
 }
 function closeEdit() {
   activeItem.value = null
-}
-
-async function saveModel() {
-  if (!activeItem.value) return
-  modelError.value = ''
-  modelSaved.value = false
-  if (!editForm.value.name?.trim()) {
-    modelError.value = 'Name is required.'
-    return
-  }
-  savingModel.value = true
-  try {
-    const { error: updErr } = await supabase
-      .from('item_models')
-      .update({
-        name: editForm.value.name.trim(),
-        brand: editForm.value.brand?.trim() || null,
-        model: editForm.value.model?.trim() || null,
-        description: editForm.value.description?.trim() || null,
-        purchase_price: editForm.value.purchase_price ?? null,
-        location_id: editForm.value.location_id,
-        direct_category_id: editForm.value.direct_category_id || null,
-        general_category_id: editForm.value.general_category_id || null,
-        min_tier: editForm.value.min_tier,
-        is_active: editForm.value.is_active,
-      })
-      .eq('id', activeItem.value.id)
-    if (updErr) throw updErr
-    modelSaved.value = true
-    // Reflect the change in the list without a full reload.
-    const idx = items.value.findIndex((i) => i.id === activeItem.value!.id)
-    if (idx !== -1) items.value[idx] = { ...items.value[idx], ...editForm.value } as ItemModel
-  } catch (e) {
-    modelError.value = e instanceof Error ? e.message : 'Could not save changes.'
-  } finally {
-    savingModel.value = false
-  }
 }
 
 function addUnitRow() {
@@ -225,19 +188,40 @@ function validateUnits(): string {
   return ''
 }
 
-async function saveUnits() {
+async function saveAll() {
   if (!activeItem.value) return
-  unitsError.value = ''
-  unitsSaved.value = false
+  saveError.value = ''
+  saveSuccess.value = false
 
-  const problem = validateUnits()
-  if (problem) {
-    unitsError.value = problem
+  if (!editForm.value.name?.trim()) {
+    saveError.value = 'Name is required.'
+    return
+  }
+  const unitProblem = validateUnits()
+  if (unitProblem) {
+    saveError.value = unitProblem
     return
   }
 
-  savingUnits.value = true
+  saving.value = true
   try {
+    const { error: modelErr } = await supabase
+      .from('item_models')
+      .update({
+        name: editForm.value.name.trim(),
+        brand: editForm.value.brand?.trim() || null,
+        model: editForm.value.model?.trim() || null,
+        description: editForm.value.description?.trim() || null,
+        purchase_price: editForm.value.purchase_price ?? null,
+        location_id: editForm.value.location_id,
+        direct_category_id: editForm.value.direct_category_id || null,
+        general_category_id: editForm.value.general_category_id || null,
+        min_tier: editForm.value.min_tier,
+        is_active: editForm.value.is_active,
+      })
+      .eq('id', activeItem.value.id)
+    if (modelErr) throw modelErr
+
     for (const u of units.value) {
       const payload = {
         item_model_id: activeItem.value.id,
@@ -249,7 +233,6 @@ async function saveUnits() {
       if (u.id) {
         const { error: updErr } = await supabase.from('item_units').update(payload).eq('id', u.id)
         if (updErr) throw updErr
-        u.originalCondition = u.condition
       } else {
         const { data, error: insErr } = await supabase
           .from('item_units')
@@ -258,17 +241,25 @@ async function saveUnits() {
           .single()
         if (insErr) throw insErr
         u.id = data.id
-        u.originalCondition = u.condition
       }
+      u.originalCondition = u.condition
     }
-    unitsSaved.value = true
+
+    // Reflect the model change in the list without a full reload.
+    const idx = items.value.findIndex((i) => i.id === activeItem.value!.id)
+    if (idx !== -1) items.value[idx] = { ...items.value[idx], ...editForm.value } as ItemModel
+
+    saveSuccess.value = true
   } catch (e) {
-    // A real, unexpected database error (RLS, a genuine race we didn't
-    // catch above, etc.) — show its actual message rather than
-    // guessing, since validateUnits() already handles the common cases.
-    unitsError.value = e instanceof Error ? e.message : 'Could not save one or more units — please try again.'
+    // A real, unexpected failure — could be a genuine database error
+    // (RLS, a race we didn't catch above) or, just as likely, the
+    // request never reaching Supabase at all (project asleep, no
+    // network, a timeout) — errorMessage() surfaces whichever it was
+    // instead of masking it, since validateUnits() already handles the
+    // common, expected cases above.
+    saveError.value = errorMessage(e, 'Could not save your changes — please try again.')
   } finally {
-    savingUnits.value = false
+    saving.value = false
   }
 }
 </script>
@@ -391,12 +382,6 @@ async function saveUnits() {
           Active (visible in Browse Equipment)
         </label>
 
-        <p v-if="modelError" class="error-note">{{ modelError }}</p>
-        <p v-if="modelSaved" style="color: var(--good); font-weight: 600">Saved.</p>
-        <button class="btn primary" :disabled="savingModel" @click="saveModel">
-          {{ savingModel ? 'Saving…' : 'Save changes' }}
-        </button>
-
         <hr class="divider" />
 
         <div class="section-title">Units</div>
@@ -415,14 +400,17 @@ async function saveUnits() {
             <span v-if="u.id" class="badge" :class="toneForCondition(u.condition)">{{ conditionLabel(u.condition) }}</span>
             <span v-else class="badge accent">new</span>
           </div>
+          <!-- Adding a row is purely local (nothing is written until
+               "Save changes" below runs) — kept as its own small,
+               separate button so it's never confused with saving. -->
           <button class="btn ghost small" style="align-self: flex-start" @click="addUnitRow">+ Add unit</button>
-
-          <p v-if="unitsError" class="error-note">{{ unitsError }}</p>
-          <p v-if="unitsSaved" style="color: var(--good); font-weight: 600">Units saved.</p>
-          <button class="btn primary" :disabled="savingUnits" @click="saveUnits">
-            {{ savingUnits ? 'Saving…' : 'Save units' }}
-          </button>
         </template>
+
+        <p v-if="saveError" class="error-note">{{ saveError }}</p>
+        <p v-if="saveSuccess" style="color: var(--good); font-weight: 600">Saved.</p>
+        <button class="btn primary" :disabled="saving || unitsLoading" @click="saveAll">
+          {{ saving ? 'Saving…' : 'Save changes' }}
+        </button>
       </div>
     </div>
   </div>

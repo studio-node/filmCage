@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabaseClient'
+import { errorMessage } from '../lib/errors'
 
 interface Category {
   id: string
@@ -130,7 +131,7 @@ async function handleSubmit() {
     createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '' }))
     resetForm()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Could not add this item.'
+    error.value = errorMessage(e, 'Could not add this item.')
   } finally {
     submitting.value = false
   }
@@ -155,7 +156,7 @@ async function saveQrCodes() {
     }
     qrSaved.value = true
   } catch (e) {
-    qrError.value = e instanceof Error ? e.message : 'Could not save one or more QR codes (is one already in use?).'
+    qrError.value = errorMessage(e, 'Could not save one or more QR codes — please try again.')
   } finally {
     savingQr.value = false
   }
