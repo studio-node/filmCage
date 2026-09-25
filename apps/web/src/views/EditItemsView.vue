@@ -37,6 +37,7 @@ interface UnitRow {
   originalCondition: UnitCondition
   condition_note: string
   qr_code: string
+  serial_number: string
 }
 
 const loading = ref(true)
@@ -85,6 +86,15 @@ const editForm = ref<Partial<ItemModel>>({})
 const units = ref<UnitRow[]>([])
 const unitsLoading = ref(false)
 
+// Which unit (by index into `units`) is expanded into its own card,
+// or null to show the compact per-unit list instead. A unit's own
+// card is just a roomier place to edit the same fields — unit_code,
+// condition, note, QR code, serial number — that used to be crammed
+// into one small row; it isn't a separate save step. "Save changes"
+// below still saves everything (the item's fields and every unit,
+// expanded or not) in one action, same as before.
+const activeUnitIndex = ref<number | null>(null)
+
 // One button saves everything in the drawer — the item's own fields
 // and every unit row, including condition changes — so there's only
 // ever one place that can be "the thing you forgot to click." Adding a
@@ -110,11 +120,12 @@ async function openEdit(item: ItemModel) {
   editForm.value = { ...item }
   saveError.value = ''
   saveSuccess.value = false
+  activeUnitIndex.value = null
   unitsLoading.value = true
   units.value = []
   const { data, error: uErr } = await supabase
     .from('item_units')
-    .select('id, unit_code, condition, condition_note, qr_code')
+    .select('id, unit_code, condition, condition_note, qr_code, serial_number')
     .eq('item_model_id', item.id)
     .order('unit_code')
   if (requestId !== editRequestId) return // a newer openEdit() has since started; drop this stale result
@@ -128,12 +139,24 @@ async function openEdit(item: ItemModel) {
       originalCondition: u.condition as UnitCondition,
       condition_note: u.condition_note ?? '',
       qr_code: u.qr_code ?? '',
+      serial_number: u.serial_number ?? '',
     }))
   }
   unitsLoading.value = false
 }
+// Closes the whole drawer — from the compact unit list or from inside
+// a unit's own expanded card, "Close" always exits both.
 function closeEdit() {
   activeItem.value = null
+  activeUnitIndex.value = null
+}
+function openUnit(index: number) {
+  activeUnitIndex.value = index
+}
+// "Back" only steps out of a unit's card, back to this item's compact
+// unit list — it does not close the drawer.
+function backToUnitList() {
+  activeUnitIndex.value = null
 }
 
 function addUnitRow() {
@@ -146,7 +169,11 @@ function addUnitRow() {
     originalCondition: 'good',
     condition_note: '',
     qr_code: '',
+    serial_number: '',
   })
+  // Jump straight into the new unit's card — you just asked to add
+  // one, so you're almost certainly about to fill in its details.
+  activeUnitIndex.value = units.value.length - 1
 }
 
 // Catches the mistakes that would otherwise only surface as an opaque
@@ -229,6 +256,7 @@ async function saveAll() {
         condition: u.condition,
         condition_note: u.condition_note.trim() || null,
         qr_code: u.qr_code.trim() || null,
+        serial_number: u.serial_number.trim() || null,
       }
       if (u.id) {
         const { error: updErr } = await supabase.from('item_units').update(payload).eq('id', u.id)
@@ -271,8 +299,8 @@ async function saveAll() {
         <span class="view-eyebrow">Inventory</span>
         <h1>Edit Items</h1>
         <p class="view-desc">
-          Update an existing item's details, or manage its individual units — condition, unit
-          numbers, and QR codes.
+          Update an existing item's details, or click into one of its units to manage condition,
+          QR code, and serial number.
         </p>
       </div>
     </div>
@@ -317,93 +345,154 @@ async function saveAll() {
     <!-- ============ EDIT DRAWER ============ -->
     <div v-if="activeItem" class="drawer-backdrop" @click.self="closeEdit">
       <div class="drawer">
-        <h2 style="font-size: 19px">Edit {{ activeItem.name }}</h2>
+        <div style="display: flex; align-items: center; justify-content: space-between">
+          <h2 style="font-size: 19px">Edit {{ activeItem.name }}</h2>
+          <button class="icon-btn" title="Close" aria-label="Close" @click="closeEdit">✕</button>
+        </div>
 
-        <div class="field">
-          <label>Name</label>
-          <input v-model="editForm.name" type="text" />
-        </div>
-        <div class="field-row">
+        <!-- ---------- item fields + compact unit list ---------- -->
+        <template v-if="activeUnitIndex === null">
           <div class="field">
-            <label>Brand</label>
-            <input v-model="editForm.brand" type="text" />
+            <label>Name</label>
+            <input v-model="editForm.name" type="text" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Brand</label>
+              <input v-model="editForm.brand" type="text" />
+            </div>
+            <div class="field">
+              <label>Model</label>
+              <input v-model="editForm.model" type="text" />
+            </div>
           </div>
           <div class="field">
-            <label>Model</label>
-            <input v-model="editForm.model" type="text" />
+            <label>Description</label>
+            <textarea v-model="editForm.description" rows="3"></textarea>
           </div>
-        </div>
-        <div class="field">
-          <label>Description</label>
-          <textarea v-model="editForm.description" rows="3"></textarea>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Purchase price</label>
-            <input v-model.number="editForm.purchase_price" type="number" min="0" step="0.01" />
+          <div class="field-row">
+            <div class="field">
+              <label>Purchase price</label>
+              <input v-model.number="editForm.purchase_price" type="number" min="0" step="0.01" />
+            </div>
+            <div class="field">
+              <label>Minimum tier</label>
+              <select v-model="editForm.min_tier">
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
           </div>
           <div class="field">
-            <label>Minimum tier</label>
-            <select v-model="editForm.min_tier">
-              <option value="beginner">Beginner</option>
-              <option value="intermediate">Intermediate</option>
-              <option value="advanced">Advanced</option>
+            <label>Location</label>
+            <select v-model="editForm.location_id">
+              <option v-for="l in locations" :key="l.id" :value="l.id">{{ l.name }}</option>
             </select>
           </div>
-        </div>
-        <div class="field">
-          <label>Location</label>
-          <select v-model="editForm.location_id">
-            <option v-for="l in locations" :key="l.id" :value="l.id">{{ l.name }}</option>
-          </select>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Category</label>
-            <select v-model="editForm.direct_category_id">
-              <option value="">None</option>
-              <option v-for="c in categories.filter((c) => c.kind === 'direct')" :key="c.id" :value="c.id">
-                {{ c.name }}
-              </option>
-            </select>
+          <div class="field-row">
+            <div class="field">
+              <label>Category</label>
+              <select v-model="editForm.direct_category_id">
+                <option value="">None</option>
+                <option v-for="c in categories.filter((c) => c.kind === 'direct')" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Department</label>
+              <select v-model="editForm.general_category_id">
+                <option value="">None</option>
+                <option v-for="c in categories.filter((c) => c.kind === 'general')" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option>
+              </select>
+            </div>
           </div>
-          <div class="field">
-            <label>Department</label>
-            <select v-model="editForm.general_category_id">
-              <option value="">None</option>
-              <option v-for="c in categories.filter((c) => c.kind === 'general')" :key="c.id" :value="c.id">
-                {{ c.name }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px">
-          <input v-model="editForm.is_active" type="checkbox" style="width: auto" />
-          Active (visible in Browse Equipment)
-        </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px">
+            <input v-model="editForm.is_active" type="checkbox" style="width: auto" />
+            Active (visible in Browse Equipment)
+          </label>
 
-        <hr class="divider" />
+          <hr class="divider" />
 
-        <div class="section-title">Units</div>
-        <p v-if="unitsLoading">Loading units…</p>
+          <div class="section-title">Units</div>
+          <p v-if="unitsLoading">Loading units…</p>
+          <template v-else>
+            <button
+              v-for="(u, i) in units"
+              :key="u.id ?? `new-${i}`"
+              type="button"
+              class="unit-row-compact"
+              @click="openUnit(i)"
+            >
+              <span class="mono" style="width: 34px; text-align: left">#{{ u.unit_code || '?' }}</span>
+              <span class="badge" :class="u.id ? toneForCondition(u.condition) : 'accent'">{{
+                u.id ? conditionLabel(u.condition) : 'new'
+              }}</span>
+              <span class="unit-row-compact-meta">QR: {{ u.qr_code || '—' }}</span>
+              <span class="unit-row-compact-meta">S/N: {{ u.serial_number || '—' }}</span>
+              <span class="unit-row-compact-chevron" aria-hidden="true">›</span>
+            </button>
+            <!-- Adding a row is purely local (nothing is written until
+                 "Save changes" below runs) — its own small, separate
+                 button so it's never confused with saving. -->
+            <button class="btn ghost small" style="align-self: flex-start" @click="addUnitRow">+ Add unit</button>
+          </template>
+        </template>
+
+        <!-- ---------- one unit, enlarged into its own card ---------- -->
         <template v-else>
-          <div v-for="(u, i) in units" :key="u.id ?? `new-${i}`" class="unit-line" style="flex-wrap: wrap">
-            <input v-model="u.unit_code" type="text" class="qr-input mono" style="max-width: 50px" />
-            <select v-model="u.condition" class="qr-input" style="max-width: 110px">
-              <option value="good">Good</option>
-              <option value="caution">Caution</option>
-              <option value="damaged">Damaged</option>
-              <option value="missing">Missing</option>
-            </select>
-            <input v-model="u.condition_note" type="text" placeholder="Condition note (required if downgrading)" class="qr-input" style="flex: 1; min-width: 120px" />
-            <input v-model="u.qr_code" type="text" placeholder="QR code" class="qr-input mono" style="flex: 1; min-width: 120px" />
-            <span v-if="u.id" class="badge" :class="toneForCondition(u.condition)">{{ conditionLabel(u.condition) }}</span>
-            <span v-else class="badge accent">new</span>
+          <div style="display: flex; gap: 8px">
+            <button class="btn ghost small" @click="backToUnitList">← Back to units</button>
           </div>
-          <!-- Adding a row is purely local (nothing is written until
-               "Save changes" below runs) — kept as its own small,
-               separate button so it's never confused with saving. -->
-          <button class="btn ghost small" style="align-self: flex-start" @click="addUnitRow">+ Add unit</button>
+
+          <div class="card" style="display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span class="section-title">Unit #{{ units[activeUnitIndex].unit_code || '?' }}</span>
+              <span
+                class="badge"
+                :class="units[activeUnitIndex].id ? toneForCondition(units[activeUnitIndex].condition) : 'accent'"
+                >{{ units[activeUnitIndex].id ? conditionLabel(units[activeUnitIndex].condition) : 'new' }}</span
+              >
+            </div>
+
+            <div class="field">
+              <label>Unit code / number</label>
+              <input v-model="units[activeUnitIndex].unit_code" type="text" class="mono" />
+            </div>
+            <div class="field">
+              <label>Condition</label>
+              <select v-model="units[activeUnitIndex].condition">
+                <option value="good">Good</option>
+                <option value="caution">Caution</option>
+                <option value="damaged">Damaged</option>
+                <option value="missing">Missing</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Condition note</label>
+              <textarea
+                v-model="units[activeUnitIndex].condition_note"
+                rows="2"
+                placeholder="Required if downgrading condition"
+              ></textarea>
+            </div>
+            <div class="field">
+              <label>QR code</label>
+              <input v-model="units[activeUnitIndex].qr_code" type="text" class="mono" placeholder="e.g. FC-3K9QZ2" />
+            </div>
+            <div class="field">
+              <label>Serial number</label>
+              <input
+                v-model="units[activeUnitIndex].serial_number"
+                type="text"
+                class="mono"
+                placeholder="Manufacturer serial (if it has one)"
+              />
+            </div>
+          </div>
         </template>
 
         <p v-if="saveError" class="error-note">{{ saveError }}</p>
@@ -420,13 +509,33 @@ async function saveAll() {
 .error-note {
   color: var(--crit);
 }
-.qr-input {
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
+.unit-row-compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 4px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  font: inherit;
   color: var(--ink);
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 12.5px;
-  font-family: var(--font-body);
+  cursor: pointer;
+  text-align: left;
+}
+.unit-row-compact:first-of-type {
+  border-top: none;
+}
+.unit-row-compact:hover {
+  background: var(--surface-2);
+}
+.unit-row-compact-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+}
+.unit-row-compact-chevron {
+  margin-left: auto;
+  color: var(--ink-3);
 }
 </style>

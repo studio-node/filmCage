@@ -52,11 +52,12 @@ interface CreatedUnit {
   id: string
   unit_code: string
   qr_code: string
+  serial_number: string
 }
 const createdUnits = ref<CreatedUnit[]>([])
-const savingQr = ref(false)
-const qrError = ref('')
-const qrSaved = ref(false)
+const savingDetails = ref(false)
+const detailsError = ref('')
+const detailsSaved = ref(false)
 
 function resetForm() {
   name.value = ''
@@ -89,7 +90,7 @@ async function handleSubmit() {
   }
 
   submitting.value = true
-  qrSaved.value = false
+  detailsSaved.value = false
   createdUnits.value = []
   try {
     const { data: newModel, error: modelErr } = await supabase
@@ -128,7 +129,7 @@ async function handleSubmit() {
     successMessage.value = `Added "${name.value.trim()}" with ${quantity.value} unit${
       quantity.value === 1 ? '' : 's'
     } (labeled 1–${quantity.value}).`
-    createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '' }))
+    createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '', serial_number: '' }))
     resetForm()
   } catch (e) {
     error.value = errorMessage(e, 'Could not add this item.')
@@ -137,28 +138,32 @@ async function handleSubmit() {
   }
 }
 
-async function saveQrCodes() {
-  qrError.value = ''
-  qrSaved.value = false
-  const toSave = createdUnits.value.filter((u) => u.qr_code.trim())
+async function saveUnitDetails() {
+  detailsError.value = ''
+  detailsSaved.value = false
+  const toSave = createdUnits.value.filter((u) => u.qr_code.trim() || u.serial_number.trim())
   if (toSave.length === 0) {
-    qrError.value = 'Enter at least one QR code to save, or skip this for now — you can add codes later from Edit Items.'
+    detailsError.value =
+      'Enter at least a QR code or serial number to save, or skip this for now — you can add these later from Edit Items.'
     return
   }
-  savingQr.value = true
+  savingDetails.value = true
   try {
     for (const u of toSave) {
       const { error: updErr } = await supabase
         .from('item_units')
-        .update({ qr_code: u.qr_code.trim() })
+        .update({
+          qr_code: u.qr_code.trim() || null,
+          serial_number: u.serial_number.trim() || null,
+        })
         .eq('id', u.id)
       if (updErr) throw updErr
     }
-    qrSaved.value = true
+    detailsSaved.value = true
   } catch (e) {
-    qrError.value = errorMessage(e, 'Could not save one or more QR codes — please try again.')
+    detailsError.value = errorMessage(e, 'Could not save one or more units — please try again.')
   } finally {
-    savingQr.value = false
+    savingDetails.value = false
   }
 }
 </script>
@@ -252,8 +257,9 @@ async function saveQrCodes() {
       <p class="field-hint">
         Creates {{ quantity }} unit{{ quantity === 1 ? '' : 's' }} labeled 1{{
           quantity > 1 ? `–${quantity}` : ''
-        }}, each in "good" condition. QR codes aren't generated — you'll get a place to type in the
-        code from an existing sticker (or leave it blank) right after adding.
+        }}, each in "good" condition. QR codes and serial numbers aren't required — you'll get a
+        place to type them in (from a sticker or the item itself, or leave either blank) right after
+        adding.
       </p>
 
       <p v-if="error" class="error-note">{{ error }}</p>
@@ -267,20 +273,21 @@ async function saveQrCodes() {
     </div>
 
     <div v-if="createdUnits.length > 0" class="card" style="max-width: 640px; display: flex; flex-direction: column; gap: 12px">
-      <div class="section-title">Assign QR codes (optional)</div>
+      <div class="section-title">Assign QR codes &amp; serial numbers (optional)</div>
       <p style="color: var(--ink-2)">
-        If any of these units already have a physical QR sticker, type or scan the code in here. Leave
-        blank to assign one later from Edit Items.
+        If any of these units already have a physical QR sticker or a manufacturer serial number,
+        type or scan them in here. Leave either blank to fill in later from Edit Items.
       </p>
-      <div v-for="u in createdUnits" :key="u.id" class="unit-line">
+      <div v-for="u in createdUnits" :key="u.id" class="unit-line" style="flex-wrap: wrap">
         <span class="mono" style="width: 32px">#{{ u.unit_code }}</span>
-        <input v-model="u.qr_code" type="text" placeholder="e.g. FC-3K9QZ2" class="qr-input" />
+        <input v-model="u.qr_code" type="text" placeholder="QR code, e.g. FC-3K9QZ2" class="qr-input" />
+        <input v-model="u.serial_number" type="text" placeholder="Serial number" class="qr-input" />
       </div>
-      <p v-if="qrError" class="error-note">{{ qrError }}</p>
-      <p v-if="qrSaved" style="color: var(--good); font-weight: 600">QR codes saved.</p>
+      <p v-if="detailsError" class="error-note">{{ detailsError }}</p>
+      <p v-if="detailsSaved" style="color: var(--good); font-weight: 600">Saved.</p>
       <div>
-        <button class="btn" :disabled="savingQr" @click="saveQrCodes">
-          {{ savingQr ? 'Saving…' : 'Save QR codes' }}
+        <button class="btn" :disabled="savingDetails" @click="saveUnitDetails">
+          {{ savingDetails ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </div>
