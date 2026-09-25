@@ -427,12 +427,11 @@ async function saveAll() {
               class="unit-row-compact"
               @click="openUnit(i)"
             >
-              <span class="mono" style="width: 34px; text-align: left">#{{ u.unit_code || '?' }}</span>
+              <span class="mono" style="width: 34px; text-align: left">{{ u.unit_code || '?' }}</span>
               <span class="badge" :class="u.id ? toneForCondition(u.condition) : 'accent'">{{
                 u.id ? conditionLabel(u.condition) : 'new'
               }}</span>
-              <span class="unit-row-compact-meta">QR: {{ u.qr_code || '—' }}</span>
-              <span class="unit-row-compact-meta">S/N: {{ u.serial_number || '—' }}</span>
+              <span class="unit-row-compact-meta">Serial: {{ u.serial_number || '—' }}</span>
               <span class="unit-row-compact-chevron" aria-hidden="true">›</span>
             </button>
             <!-- Adding a row is purely local (nothing is written until
