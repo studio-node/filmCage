@@ -83,7 +83,7 @@ async function loadCatalog() {
         .eq('is_active', true)
         .order('name'),
       supabase
-        .from('item_units')
+        .from('item_units_with_status')
         .select('id, item_model_id, unit_code, condition, condition_note, current_reservation_id'),
     ])
     if (catRes.error) throw catRes.error

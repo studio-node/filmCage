@@ -77,7 +77,7 @@ async function loadStudentDashboard(userId: string) {
         .eq('user_id', userId)
         .maybeSingle(),
       supabase
-        .from('fines')
+        .from('fines_with_amount')
         .select('id, fine_type, status, current_amount')
         .eq('student_id', userId)
         .in('status', ['warning', 'active']),

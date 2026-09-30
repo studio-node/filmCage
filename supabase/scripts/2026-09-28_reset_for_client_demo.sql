@@ -46,8 +46,12 @@ begin
   end if;
 end $$;
 
--- Detach units from any in-progress reservation before reservations go away
-update public.item_units set current_reservation_id = null;
+-- (Older versions of this script nulled item_units.current_reservation_id
+-- here before deleting reservations. As of migration
+-- 20260930160000_fines_view_and_current_reservation_fix.sql that column
+-- no longer exists -- "currently checked out" is now computed live from
+-- reservation_units + reservations.status via the item_units_with_status
+-- view, so there's nothing to null out and nothing that can drift.)
 
 -- Clear activity/test data (child tables first, respecting foreign keys)
 delete from public.notifications;
