@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
+import { errorMessage } from '../lib/errors'
 import {
   toneForFineStatus,
   toneForReservationStatus,
@@ -40,6 +41,22 @@ interface NotificationRow {
   created_at: string
 }
 
+// A student flagged their own account for tier review (changed their
+// class on the new profile drawer) — self-service editing never
+// moves tier itself, only this flag, so staff decide from here
+// whether the new class's mapped tier actually takes effect.
+interface PendingTierChange {
+  user_id: string
+  tier: 'beginner' | 'intermediate' | 'advanced' | null
+  class_taken: string | null
+  users: { full_name: string; email: string } | null
+  course_tier_mappings: {
+    course_name: string
+    course_code: string | null
+    tier: 'beginner' | 'intermediate' | 'advanced'
+  } | null
+}
+
 const auth = useAuthStore()
 const loading = ref(true)
 const error = ref('')
@@ -48,6 +65,13 @@ const profile = ref<StudentProfile | null>(null)
 const fines = ref<FineRow[]>([])
 const reservations = ref<ReservationRow[]>([])
 const notifications = ref<NotificationRow[]>([])
+
+const pendingTierChanges = ref<PendingTierChange[]>([])
+const loadingStaff = ref(false)
+const staffError = ref('')
+const tierActionBusyId = ref<string | null>(null)
+const tierActionError = ref('')
+const STAFF_PLUS_ROLES = ['staff', 'supervisor', 'admin']
 
 const outstandingTotal = computed(() =>
   fines.value.reduce((sum, f) => sum + Number(f.current_amount), 0)
@@ -72,7 +96,7 @@ async function loadStudentDashboard(userId: string) {
   try {
     const [profileRes, finesRes, reservationsRes, notificationsRes] = await Promise.all([
       supabase
-        .from('student_profiles')
+        .from('user_profiles')
         .select('tier, strike_count, is_blocked, checkout_suspended, suspended_reason')
         .eq('user_id', userId)
         .maybeSingle(),
@@ -111,17 +135,79 @@ async function loadStudentDashboard(userId: string) {
   }
 }
 
+async function loadStaffDashboard() {
+  loadingStaff.value = true
+  staffError.value = ''
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select(
+        'user_id, tier, class_taken, users!user_profiles_user_id_fkey(full_name, email), course_tier_mappings!user_profiles_class_taken_fkey(course_name, course_code, tier)'
+      )
+      .eq('needs_tier_reconfirmation', true)
+    if (error) throw error
+    pendingTierChanges.value = (data ?? []) as unknown as PendingTierChange[]
+  } catch (e) {
+    staffError.value = errorMessage(e, 'Could not load pending tier changes.')
+  } finally {
+    loadingStaff.value = false
+  }
+}
+
+async function confirmTierChange(row: PendingTierChange) {
+  const newTier = row.course_tier_mappings?.tier
+  if (!newTier) return
+  tierActionError.value = ''
+  tierActionBusyId.value = row.user_id
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ tier: newTier, needs_tier_reconfirmation: false })
+      .eq('user_id', row.user_id)
+    if (error) throw error
+    pendingTierChanges.value = pendingTierChanges.value.filter((r) => r.user_id !== row.user_id)
+  } catch (e) {
+    tierActionError.value = errorMessage(e, 'Could not confirm this tier change.')
+  } finally {
+    tierActionBusyId.value = null
+  }
+}
+
+async function dismissTierChange(row: PendingTierChange) {
+  tierActionError.value = ''
+  tierActionBusyId.value = row.user_id
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ needs_tier_reconfirmation: false })
+      .eq('user_id', row.user_id)
+    if (error) throw error
+    pendingTierChanges.value = pendingTierChanges.value.filter((r) => r.user_id !== row.user_id)
+  } catch (e) {
+    tierActionError.value = errorMessage(e, 'Could not dismiss this request.')
+  } finally {
+    tierActionBusyId.value = null
+  }
+}
+
 // This dashboard is the student view — checkouts, fines, and
 // reservations all scoped to the signed-in student. Staff/supervisor/
-// admin get a lightweight placeholder for now; their own dashboard
-// (queue to approve, items overdue org-wide, etc.) is a later phase.
+// admin get a lightweight placeholder for the rest (queue to approve,
+// items overdue org-wide, etc. — a later phase), but now see real
+// pending tier-change requests above it (see ProfileDrawer.vue —
+// self-service class editing never moves tier itself, only flags the
+// account here for review).
 const isStudentView = computed(() => !auth.role || auth.role === 'student')
 
 watch(
   () => [auth.user?.id, auth.role] as const,
-  ([userId]) => {
-    if (userId && isStudentView.value) loadStudentDashboard(userId)
-    else loading.value = false
+  ([userId, role]) => {
+    if (userId && isStudentView.value) {
+      loadStudentDashboard(userId)
+    } else {
+      loading.value = false
+      if (userId && role && STAFF_PLUS_ROLES.includes(role)) loadStaffDashboard()
+    }
   },
   { immediate: true }
 )
@@ -157,23 +243,69 @@ function timeAgo(iso: string) {
       }}</span>
     </div>
 
-    <div v-if="!isStudentView" class="card">
-      <div class="section-title" style="margin-bottom: 6px">
-        {{
-          auth.role === 'admin'
-            ? 'Admin'
-            : auth.role === 'supervisor'
-              ? 'Supervisor'
-              : auth.role === 'professor'
-                ? 'Professor'
-                : 'Staff'
-        }}
-        dashboard
+    <div v-if="!isStudentView" style="display: flex; flex-direction: column; gap: 22px">
+      <div class="card">
+        <div class="section-title" style="margin-bottom: 6px">
+          {{
+            auth.role === 'admin'
+              ? 'Admin'
+              : auth.role === 'supervisor'
+                ? 'Supervisor'
+                : auth.role === 'class_instructor'
+                  ? 'Class Instructor'
+                  : 'Staff'
+          }}
+          dashboard
+        </div>
+        <p style="color: var(--ink-2)">
+          The full staff/admin dashboard (approval queue, org-wide checkout status, analytics) is
+          coming in a later build phase. For now, use Browse Equipment to see the live catalog.
+        </p>
       </div>
-      <p style="color: var(--ink-2)">
-        The staff/admin dashboard (approval queue, org-wide checkout status, analytics) is coming in a
-        later build phase. For now, use Browse Equipment to see the live catalog.
-      </p>
+
+      <div v-if="auth.role && ['staff', 'supervisor', 'admin'].includes(auth.role)" class="card">
+        <div class="section-title" style="margin-bottom: 2px">Pending tier changes</div>
+        <p class="field-hint" style="margin-bottom: 12px">
+          Students who changed their class on their own profile — their tier stays put until you
+          confirm or dismiss it here.
+        </p>
+        <p v-if="loadingStaff">Loading…</p>
+        <p v-else-if="staffError" class="error-note">{{ staffError }}</p>
+        <p v-else-if="pendingTierChanges.length === 0" class="empty-note">Nothing pending.</p>
+        <div v-else style="display: flex; flex-direction: column; gap: 10px">
+          <p v-if="tierActionError" class="error-note">{{ tierActionError }}</p>
+          <div v-for="row in pendingTierChanges" :key="row.user_id" class="card-flat" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+            <div>
+              <div style="font-weight: 600">{{ row.users?.full_name ?? 'Unknown student' }}</div>
+              <div class="field-hint">{{ row.users?.email }}</div>
+              <div style="margin-top: 4px; font-size: 12.5px">
+                Took
+                <strong>{{ row.course_tier_mappings?.course_code ?? row.course_tier_mappings?.course_name ?? '—' }}</strong>
+                — currently
+                <span class="badge violet" style="text-transform: capitalize">{{ row.tier }} tier</span>
+                → requests
+                <span class="badge accent" style="text-transform: capitalize">{{ row.course_tier_mappings?.tier ?? '?' }} tier</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px">
+              <button
+                class="btn ghost small"
+                :disabled="tierActionBusyId === row.user_id"
+                @click="dismissTierChange(row)"
+              >
+                Dismiss
+              </button>
+              <button
+                class="btn primary small"
+                :disabled="tierActionBusyId === row.user_id || !row.course_tier_mappings"
+                @click="confirmTierChange(row)"
+              >
+                {{ tierActionBusyId === row.user_id ? 'Saving…' : `Confirm → ${row.course_tier_mappings?.tier ?? '?'}` }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <p v-else-if="loading">Loading your dashboard…</p>

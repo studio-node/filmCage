@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { supabase } from '../lib/supabaseClient'
 import type { User } from '@supabase/supabase-js'
 
-export type UserRole = 'student' | 'staff' | 'supervisor' | 'admin' | 'professor'
+export type UserRole = 'student' | 'staff' | 'supervisor' | 'admin' | 'class_instructor'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({

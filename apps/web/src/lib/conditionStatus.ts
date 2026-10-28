@@ -134,3 +134,41 @@ export function reservationStatusLabel(status: ReservationStatus): string {
       return 'Completed'
   }
 }
+
+// Matches public.unit_status exactly (see migration
+// 20261007110000_item_unit_lifecycle_status) — a separate axis from
+// condition above. condition is a point-in-time quality read tied to
+// checkout/return; status is "is this unit part of the working fleet
+// right now." out_for_repair is the one temporary state (expected to
+// flip back to active); retired/lost/stolen are all permanent, just
+// different paper trails.
+export type UnitStatus = 'active' | 'out_for_repair' | 'retired' | 'lost' | 'stolen'
+
+export function toneForUnitStatus(status: UnitStatus): Tone {
+  switch (status) {
+    case 'active':
+      return 'good'
+    case 'out_for_repair':
+      return 'warn'
+    case 'retired':
+      return 'muted'
+    case 'lost':
+    case 'stolen':
+      return 'crit'
+  }
+}
+
+export function unitStatusLabel(status: UnitStatus): string {
+  switch (status) {
+    case 'active':
+      return 'Active'
+    case 'out_for_repair':
+      return 'Out for repair'
+    case 'retired':
+      return 'Retired'
+    case 'lost':
+      return 'Lost'
+    case 'stolen':
+      return 'Stolen'
+  }
+}

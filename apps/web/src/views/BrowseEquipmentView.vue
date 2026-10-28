@@ -1,64 +1,46 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
-import { useCartStore } from '../stores/cart'
-import { toneForCondition, conditionLabel, type UnitCondition } from '../lib/conditionStatus'
+import { useCatalogStore, type CatalogItem } from '../stores/catalog'
+import { fuzzyTest } from '../lib/fuzzySearch'
 
-interface Category {
-  id: string
-  name: string
-  kind: 'direct' | 'general'
-  display_order: number
-}
-interface Location {
-  id: string
-  name: string
-}
-interface ItemModel {
-  id: string
-  name: string
-  brand: string | null
-  model: string | null
-  description: string | null
-  purchase_price: number | null
-  location_id: string
-  direct_category_id: string | null
-  general_category_id: string | null
-  min_tier: 'beginner' | 'intermediate' | 'advanced'
-}
 interface UnitRow {
   id: string
   item_model_id: string
-  unit_code: string
-  condition: UnitCondition
-  condition_note: string | null
-  current_reservation_id: string | null
+  status: string
 }
 
 const TIER_RANK: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 }
-const AVAILABLE_CONDITIONS: UnitCondition[] = ['good', 'caution']
+// Retired/lost/stolen units are permanently out of the fleet -- they
+// don't count toward "how many of this do we own" at all, same as if
+// they were never added. out_for_repair is temporary (it'll come
+// back), so it still counts toward the total.
+const FLEET_STATUSES = ['active', 'out_for_repair']
 
 const auth = useAuthStore()
-const cart = useCartStore()
+const catalog = useCatalogStore()
+const router = useRouter()
 
+// The catalog itself (item models, categories, locations) is shared
+// with the top-nav global search via the catalog store — this view
+// just reads it instead of fetching its own copy. Unit-level counts
+// are per-unit stock, not catalog data, so they're still fetched here
+// on their own.
 const loading = ref(true)
 const error = ref('')
 
-const categories = ref<Category[]>([])
-const locations = ref<Location[]>([])
-const items = ref<ItemModel[]>([])
 const unitsByModel = ref<Map<string, UnitRow[]>>(new Map())
 const studentTier = ref<string | null>(null)
 
-const directCategories = computed(() => categories.value.filter((c) => c.kind === 'direct'))
-const generalCategories = computed(() => categories.value.filter((c) => c.kind === 'general'))
-
-const categoryById = computed(() => new Map(categories.value.map((c) => [c.id, c])))
-const locationById = computed(() => new Map(locations.value.map((l) => [l.id, l])))
+const directCategories = computed(() => catalog.categories.filter((c) => c.kind === 'direct'))
+const generalCategories = computed(() => catalog.categories.filter((c) => c.kind === 'general'))
 
 // --- filters --------------------------------------------------------
-const search = ref('')
+// catalog.query is the shared search text — the same box drives both
+// this page and the top-nav global search, so they stay in sync no
+// matter which one someone types into.
 const selectedDirect = reactive(new Set<string>())
 const selectedGeneral = reactive(new Set<string>())
 const selectedLocations = reactive(new Set<string>())
@@ -68,44 +50,30 @@ function toggle(set: Set<string>, id: string) {
   else set.add(id)
 }
 
-async function loadCatalog() {
+async function loadUnits() {
+  const { data, error: unitErr } = await supabase
+    .from('item_units_with_status')
+    .select('id, item_model_id, status')
+  if (unitErr) throw unitErr
+  const grouped = new Map<string, UnitRow[]>()
+  for (const u of (data ?? []) as UnitRow[]) {
+    const list = grouped.get(u.item_model_id) ?? []
+    list.push(u)
+    grouped.set(u.item_model_id, list)
+  }
+  unitsByModel.value = grouped
+}
+
+async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [catRes, locRes, modelRes, unitRes] = await Promise.all([
-      supabase.from('categories').select('id, name, kind, display_order').order('display_order'),
-      supabase.from('locations').select('id, name').order('name'),
-      supabase
-        .from('item_models')
-        .select(
-          'id, name, brand, model, description, purchase_price, location_id, direct_category_id, general_category_id, min_tier'
-        )
-        .eq('is_active', true)
-        .order('name'),
-      supabase
-        .from('item_units_with_status')
-        .select('id, item_model_id, unit_code, condition, condition_note, current_reservation_id'),
-    ])
-    if (catRes.error) throw catRes.error
-    if (locRes.error) throw locRes.error
-    if (modelRes.error) throw modelRes.error
-    if (unitRes.error) throw unitRes.error
-
-    categories.value = catRes.data ?? []
-    locations.value = locRes.data ?? []
-    items.value = (modelRes.data ?? []) as ItemModel[]
-
-    const grouped = new Map<string, UnitRow[]>()
-    for (const u of (unitRes.data ?? []) as UnitRow[]) {
-      const list = grouped.get(u.item_model_id) ?? []
-      list.push(u)
-      grouped.set(u.item_model_id, list)
-    }
-    unitsByModel.value = grouped
+    await Promise.all([catalog.ensureLoaded(), loadUnits()])
+    if (catalog.error) throw new Error(catalog.error)
 
     if (auth.role === 'student' && auth.user) {
       const { data: profile } = await supabase
-        .from('student_profiles')
+        .from('user_profiles')
         .select('tier')
         .eq('user_id', auth.user.id)
         .maybeSingle()
@@ -121,34 +89,34 @@ async function loadCatalog() {
 watch(
   () => auth.user?.id,
   (userId) => {
-    if (userId) loadCatalog()
+    if (userId) loadAll()
   },
   { immediate: true }
 )
 
-function availability(modelId: string) {
-  const units = unitsByModel.value.get(modelId) ?? []
-  const available = units.filter(
-    (u) => u.current_reservation_id === null && AVAILABLE_CONDITIONS.includes(u.condition)
-  ).length
-  return { total: units.length, available, units }
+// This page is pure browsing — it only ever shows how many of an item
+// the Cage owns in total, never how many are free right now. Real,
+// date-aware availability can only be checked against an actual
+// pickup/drop-off window, and that only happens on the New Reservation
+// screen (see item_available_quantity()). Showing an "available"
+// number here is exactly what let the Oct 19 rod double-booking slip
+// through unnoticed, so this page no longer claims to know it.
+function totalOwned(modelId: string): number {
+  return (unitsByModel.value.get(modelId) ?? []).filter((u) => FLEET_STATUSES.includes(u.status)).length
 }
 
-function availabilityTone(modelId: string): 'good' | 'warn' | 'crit' {
-  const { total, available } = availability(modelId)
-  if (available === 0) return 'crit'
-  if (available < total) return 'warn'
-  return 'good'
+function ownedTone(modelId: string): 'good' | 'crit' {
+  return totalOwned(modelId) > 0 ? 'good' : 'crit'
 }
 
-function isLocked(item: ItemModel) {
+function isLocked(item: CatalogItem) {
   if (auth.role !== 'student' || !studentTier.value) return false
   return TIER_RANK[studentTier.value] < TIER_RANK[item.min_tier]
 }
 
 const filteredItems = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return items.value.filter((item) => {
+  const q = catalog.query
+  return catalog.items.filter((item) => {
     if (selectedDirect.size > 0 && !(item.direct_category_id && selectedDirect.has(item.direct_category_id)))
       return false
     if (
@@ -157,107 +125,47 @@ const filteredItems = computed(() => {
     )
       return false
     if (selectedLocations.size > 0 && !selectedLocations.has(item.location_id)) return false
-    if (q) {
-      const hay = `${item.name} ${item.brand ?? ''} ${item.model ?? ''}`.toLowerCase()
-      if (!hay.includes(q)) return false
-    }
+    if (q.trim() && !fuzzyTest(q, catalog.searchableText(item))) return false
     return true
   })
 })
 
 // --- drawer -----------------------------------------------------------
-const activeItem = ref<ItemModel | null>(null)
-const reserving = ref(false)
-const formError = ref('')
-const quantity = ref(1)
+// Purely informational now — picking a quantity, adding to a
+// reservation, or joining a waitlist all happen on New Reservation
+// instead, once a real window is set and there's something to check
+// availability against.
+const activeItem = ref<CatalogItem | null>(null)
 
-function openDrawer(item: ItemModel) {
+function openDrawer(item: CatalogItem) {
   activeItem.value = item
-  const { available } = availability(item.id)
-  quantity.value = Math.min(1, available) || 1
-  formError.value = ''
 }
 function closeDrawer() {
   activeItem.value = null
 }
 
-function addToCart() {
+function goStartReservation() {
   if (!activeItem.value) return
-  formError.value = ''
-  const { available } = availability(activeItem.value.id)
-  if (quantity.value < 1 || quantity.value > available) {
-    formError.value = `Quantity must be between 1 and ${available} (what's currently available).`
-    return
-  }
-  const location = locationById.value.get(activeItem.value.location_id)
-  const rejection = cart.addItem(
-    {
-      id: activeItem.value.id,
-      name: activeItem.value.name,
-      locationId: activeItem.value.location_id,
-      locationName: location?.name ?? 'this location',
-    },
-    quantity.value,
-    available
-  )
-  if (rejection) {
-    formError.value = rejection
-    return
-  }
-  pushToast(`Added ${quantity.value} × ${activeItem.value.name} to your reservation.`)
+  router.push({ name: 'new-reservation', query: { item: activeItem.value.id, location: activeItem.value.location_id } })
   closeDrawer()
 }
 
-async function joinWaitlist() {
-  if (!activeItem.value || !auth.user) return
-  formError.value = ''
-  reserving.value = true
-  try {
-    const { data: resv, error: rErr } = await supabase
-      .from('reservations')
-      .insert({
-        reservation_name: `${activeItem.value.name} (waitlist)`,
-        student_id: auth.user.id,
-        location_id: activeItem.value.location_id,
-        created_by: auth.user.id,
-      })
-      .select('id')
-      .single()
-    if (rErr) throw rErr
-
-    const { error: iErr } = await supabase.from('reservation_items').insert({
-      reservation_id: resv.id,
-      item_model_id: activeItem.value.id,
-      quantity: 1,
-    })
-    if (iErr) throw iErr
-
-    const { error: wErr } = await supabase.rpc('add_to_waitlist', {
-      p_reservation_id: resv.id,
-      p_item_model_id: activeItem.value.id,
-      p_student_id: auth.user.id,
-    })
-    if (wErr) throw wErr
-
-    pushToast(`Added to the waitlist for ${activeItem.value.name}.`)
-    closeDrawer()
-  } catch (e) {
-    formError.value = e instanceof Error ? e.message : 'Could not join the waitlist.'
-  } finally {
-    reserving.value = false
-  }
-}
-
-// --- toasts -------------------------------------------------------------
-const toasts = ref<{ id: number; message: string }[]>([])
-let toastSeq = 0
-function pushToast(message: string) {
-  const id = ++toastSeq
-  toasts.value.push({ id, message })
-  setTimeout(() => {
-    toasts.value = toasts.value.filter((t) => t.id !== id)
-  }, 3500)
-}
+// If the global search dropdown (top nav) sent us here to open a
+// specific item, do it as soon as that item is actually available to
+// open — covers both "already on this page" (fires right away) and
+// "navigating in from elsewhere" (fires once loadAll() resolves).
+watch(
+  () => [catalog.pendingOpenItemId, catalog.items] as const,
+  ([pendingId]) => {
+    if (!pendingId) return
+    const item = catalog.items.find((i) => i.id === pendingId)
+    if (item) {
+      openDrawer(item)
+      catalog.pendingOpenItemId = null
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -277,7 +185,12 @@ function pushToast(message: string) {
       <div class="card" style="display: flex; flex-direction: column; gap: 14px">
         <div class="field" style="max-width: 360px">
           <label>Search</label>
-          <input v-model="search" type="text" placeholder="Search by name, brand, or model…" />
+          <input
+            v-model="catalog.query"
+            type="text"
+            placeholder="Search by name, brand, model, category…"
+          />
+          <p class="field-hint">Close spellings and typos still match — it doesn't have to be exact.</p>
         </div>
 
         <div>
@@ -316,7 +229,7 @@ function pushToast(message: string) {
           <div class="kicker" style="margin-bottom: 6px">Location</div>
           <div class="chip-row">
             <button
-              v-for="l in locations"
+              v-for="l in catalog.locations"
               :key="l.id"
               type="button"
               class="chip"
@@ -344,7 +257,7 @@ function pushToast(message: string) {
             <span class="glyph">🎥</span>
           </div>
           <div class="item-body">
-            <span class="item-cat">{{ categoryById.get(item.direct_category_id ?? '')?.name ?? 'Uncategorized' }}</span>
+            <span class="item-cat">{{ catalog.categoryById.get(item.direct_category_id ?? '')?.name ?? 'Uncategorized' }}</span>
             <span class="item-name">{{ item.name }}</span>
             <span v-if="item.brand || item.model" class="item-brand">{{ item.brand }} {{ item.model }}</span>
 
@@ -356,9 +269,9 @@ function pushToast(message: string) {
               <span class="item-price mono" v-if="item.purchase_price != null"
                 >${{ Number(item.purchase_price).toFixed(0) }}</span
               >
-              <span class="status-line" :class="availabilityTone(item.id)">
-                <span class="status-dot" :class="availabilityTone(item.id)"></span>
-                {{ availability(item.id).available }}/{{ availability(item.id).total }} available
+              <span class="status-line" :class="ownedTone(item.id)">
+                <span class="status-dot" :class="ownedTone(item.id)"></span>
+                {{ totalOwned(item.id) }} owned
               </span>
             </div>
           </div>
@@ -372,7 +285,7 @@ function pushToast(message: string) {
         <div class="drawer-thumb">🎥</div>
         <div>
           <span class="item-cat">{{
-            categoryById.get(activeItem.direct_category_id ?? '')?.name ?? 'Uncategorized'
+            catalog.categoryById.get(activeItem.direct_category_id ?? '')?.name ?? 'Uncategorized'
           }}</span>
           <h2 style="font-size: 19px; margin-top: 4px">{{ activeItem.name }}</h2>
           <p v-if="activeItem.brand || activeItem.model" style="color: var(--ink-3); margin-top: 2px">
@@ -381,9 +294,9 @@ function pushToast(message: string) {
         </div>
 
         <div class="chip-row">
-          <span class="badge accent">{{ locationById.get(activeItem.location_id)?.name }}</span>
+          <span class="badge accent">{{ catalog.locationById.get(activeItem.location_id)?.name }}</span>
           <span class="badge neutral">
-            {{ categoryById.get(activeItem.general_category_id ?? '')?.name ?? 'Misc' }}
+            {{ catalog.categoryById.get(activeItem.general_category_id ?? '')?.name ?? 'Misc' }}
           </span>
           <span class="badge violet" style="text-transform: capitalize">{{ activeItem.min_tier }}+ tier</span>
         </div>
@@ -392,58 +305,26 @@ function pushToast(message: string) {
 
         <hr class="divider" />
 
-        <div>
-          <div class="section-title" style="margin-bottom: 8px">
-            Units ({{ availability(activeItem.id).available }}/{{ availability(activeItem.id).total }}
-            available)
-          </div>
-          <div v-for="u in availability(activeItem.id).units" :key="u.id" class="unit-line">
-            <span class="mono">{{ u.unit_code }}</span>
-            <span class="badge" :class="toneForCondition(u.condition)">{{ conditionLabel(u.condition) }}</span>
-            <span v-if="u.current_reservation_id" class="badge muted">checked out</span>
-            <span v-if="u.condition_note" style="color: var(--ink-3); font-size: 11px">{{
-              u.condition_note
-            }}</span>
-          </div>
+        <div class="item-meta-row">
+          <span class="status-line" :class="ownedTone(activeItem.id)">
+            <span class="status-dot" :class="ownedTone(activeItem.id)"></span>
+            {{ totalOwned(activeItem.id) }} owned total
+          </span>
         </div>
-
-        <hr class="divider" />
 
         <div v-if="isLocked(activeItem)" class="lock-note">
           🔒 This item requires {{ activeItem.min_tier }} tier or higher. Your current tier is
           {{ studentTier }}.
         </div>
 
-        <template v-else-if="availability(activeItem.id).available > 0">
-          <div class="qty-stepper">
-            <button type="button" @click="quantity = Math.max(1, quantity - 1)" :disabled="quantity <= 1">
-              −
-            </button>
-            <span class="qty-num">{{ quantity }}</span>
-            <button
-              type="button"
-              @click="quantity = Math.min(availability(activeItem.id).available, quantity + 1)"
-              :disabled="quantity >= availability(activeItem.id).available"
-            >
-              +
-            </button>
-          </div>
-          <p v-if="formError" class="error-note">{{ formError }}</p>
-          <button class="btn primary" @click="addToCart">Add to reservation</button>
-        </template>
+        <hr class="divider" />
 
-        <template v-else>
-          <p v-if="formError" class="error-note">{{ formError }}</p>
-          <button class="btn" :disabled="reserving" @click="joinWaitlist">
-            {{ reserving ? 'Joining…' : 'Join waitlist' }}
-          </button>
-        </template>
+        <div class="info-note">
+          This page just shows what's in the fleet. Start a new reservation to check real
+          availability for your actual pickup and drop-off dates.
+        </div>
+        <button class="btn primary" @click="goStartReservation">Start a reservation</button>
       </div>
-    </div>
-
-    <!-- ============ TOASTS ============ -->
-    <div class="toast-region">
-      <div v-for="t in toasts" :key="t.id" class="toast">{{ t.message }}</div>
     </div>
   </div>
 </template>

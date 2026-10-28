@@ -1,26 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { useCartStore } from '../stores/cart'
+import { useCatalogStore, type CatalogItem } from '../stores/catalog'
 import { supabase } from '../lib/supabaseClient'
-import CartPanel from './CartPanel.vue'
+import ProfileDrawer from './ProfileDrawer.vue'
 
 interface NavItem {
   key: string
   label: string
   routeName: string | null // null = not built yet
-  roles: Array<'student' | 'staff' | 'supervisor' | 'admin' | 'professor'>
-  icon: 'grid' | 'box' | 'calendar' | 'list' | 'truck' | 'chart' | 'shield'
+  roles: Array<'student' | 'staff' | 'supervisor' | 'admin' | 'class_instructor'>
+  icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'chart' | 'shield'
 }
 
-const ALL_ROLES: NavItem['roles'] = ['student', 'staff', 'supervisor', 'admin', 'professor']
+const ALL_ROLES: NavItem['roles'] = ['student', 'staff', 'supervisor', 'admin', 'class_instructor']
 
 const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', routeName: 'dashboard', roles: ALL_ROLES, icon: 'grid' },
   { key: 'browse', label: 'Browse Equipment', routeName: 'browse', roles: ALL_ROLES, icon: 'box' },
-  { key: 'reservations', label: 'My Reservations', routeName: null, roles: ALL_ROLES, icon: 'list' },
-  { key: 'calendar', label: 'Calendar', routeName: null, roles: ALL_ROLES, icon: 'calendar' },
+  { key: 'calendar', label: 'New Reservation', routeName: 'new-reservation', roles: ALL_ROLES, icon: 'calendar' },
+  { key: 'reservations', label: 'My Reservations', routeName: 'reservations', roles: ALL_ROLES, icon: 'list' },
+  { key: 'reservation-queue', label: 'Reservation Queue', routeName: 'reservation-queue', roles: ['staff', 'supervisor', 'admin'], icon: 'inbox' },
   { key: 'pickup', label: 'Pickup / Return', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'truck' },
   { key: 'analytics', label: 'Analytics', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'chart' },
   { key: 'admin', label: 'Add Items', routeName: 'admin', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
@@ -28,10 +29,11 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 const auth = useAuthStore()
-const cart = useCartStore()
+const catalog = useCatalogStore()
 const router = useRouter()
+const route = useRoute()
 const sidebarOpen = ref(false)
-const cartOpen = ref(false)
+const profileOpen = ref(false)
 
 const visibleNav = computed(() =>
   NAV_ITEMS.filter((item) => !auth.role || item.roles.includes(auth.role))
@@ -58,9 +60,71 @@ async function loadUnreadCount() {
 loadUnreadCount()
 
 async function handleSignOut() {
-  cart.clear()
   await auth.signOut()
   router.push({ name: 'login' })
+}
+
+// --- global equipment search --------------------------------------
+// The search box up here and the one on the Browse Equipment page
+// both read/write catalog.query, so typing in either one filters the
+// same underlying list — there's really just one search, shown in
+// two places, same as the mockup's single global search state.
+const showSuggestions = ref(false)
+const highlighted = ref(-1)
+
+const suggestions = computed(() => catalog.search(catalog.query, 8))
+
+function focusSearch() {
+  catalog.ensureLoaded()
+  showSuggestions.value = true
+}
+function onSearchInput() {
+  showSuggestions.value = true
+  highlighted.value = -1
+  if (catalog.query.trim() && route.name !== 'browse') {
+    router.push({ name: 'browse' })
+  }
+}
+// A plain window.setTimeout, same pattern as the crew-search
+// autocomplete in NewReservationView.vue — delaying the hide lets a
+// mousedown on a suggestion register before blur would otherwise
+// yank the dropdown away.
+function hideSuggestionsSoon() {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 150)
+}
+function goToBrowse() {
+  showSuggestions.value = false
+  if (route.name !== 'browse') router.push({ name: 'browse' })
+}
+function pickSuggestion(item: CatalogItem) {
+  showSuggestions.value = false
+  highlighted.value = -1
+  catalog.query = item.name
+  catalog.pendingOpenItemId = item.id
+  if (route.name !== 'browse') router.push({ name: 'browse' })
+}
+function clearSearch() {
+  catalog.query = ''
+  showSuggestions.value = false
+}
+function moveHighlight(delta: number) {
+  if (!showSuggestions.value) {
+    showSuggestions.value = true
+    return
+  }
+  const max = suggestions.value.length
+  if (max === 0) return
+  highlighted.value = (highlighted.value + delta + max) % max
+}
+function confirmHighlighted() {
+  const picked = highlighted.value >= 0 ? suggestions.value[highlighted.value] : undefined
+  if (picked) {
+    pickSuggestion(picked.item)
+  } else {
+    goToBrowse()
+  }
 }
 </script>
 
@@ -76,27 +140,64 @@ async function handleSignOut() {
         <span class="brand-sub">Film Dept</span>
       </div>
 
-      <div class="global-search">
+      <div class="global-search autocomplete-wrap">
         <span aria-hidden="true">🔍</span>
-        <input type="text" placeholder="Search equipment… (coming soon)" disabled />
+        <input
+          v-model="catalog.query"
+          type="text"
+          placeholder="Search equipment, kits, locations…"
+          @input="onSearchInput"
+          @focus="focusSearch"
+          @blur="hideSuggestionsSoon"
+          @keydown.down.prevent="moveHighlight(1)"
+          @keydown.up.prevent="moveHighlight(-1)"
+          @keydown.enter.prevent="confirmHighlighted"
+          @keydown.esc="showSuggestions = false"
+        />
+        <button
+          v-if="catalog.query"
+          type="button"
+          class="icon-btn"
+          style="width: 22px; height: 22px; border: none; background: none"
+          aria-label="Clear search"
+          @mousedown.prevent="clearSearch"
+        >
+          ✕
+        </button>
+        <div v-if="showSuggestions && catalog.query.trim()" class="autocomplete-list">
+          <div
+            v-for="(r, i) in suggestions"
+            :key="r.item.id"
+            class="autocomplete-item"
+            :class="{ 'autocomplete-item--active': i === highlighted }"
+            @mousedown.prevent="pickSuggestion(r.item)"
+          >
+            <strong>{{ r.item.name }}</strong>
+            <span v-if="r.item.brand || r.item.model" style="color: var(--ink-3)">
+              — {{ r.item.brand }} {{ r.item.model }}
+            </span>
+          </div>
+          <div v-if="suggestions.length === 0" class="autocomplete-item" style="cursor: default; color: var(--ink-3)">
+            No equipment matches "{{ catalog.query.trim() }}" — showing the full catalog filter instead.
+          </div>
+        </div>
       </div>
 
       <div class="topbar-right">
-        <button
-          v-if="auth.role === 'student' || !auth.role"
-          class="icon-btn"
-          aria-label="Cart"
-          title="Your reservation"
-          @click="cartOpen = true"
-        >
-          🛒
-          <span v-if="cart.count > 0" class="dot"></span>
-        </button>
         <button class="icon-btn" aria-label="Notifications" title="Notifications">
           🔔
           <span v-if="unreadCount > 0" class="dot"></span>
         </button>
-        <span class="avatar" :title="auth.fullName || auth.user?.email || ''">{{ initials }}</span>
+        <button
+          class="avatar"
+          type="button"
+          style="cursor: pointer"
+          :title="`${auth.fullName || auth.user?.email || ''} — edit profile`"
+          aria-label="Your profile"
+          @click="profileOpen = true"
+        >
+          {{ initials }}
+        </button>
         <button class="btn ghost small" @click="handleSignOut">Sign out</button>
       </div>
     </header>
@@ -127,7 +228,7 @@ async function handleSignOut() {
       </main>
     </div>
 
-    <CartPanel :open="cartOpen" @close="cartOpen = false" />
+    <ProfileDrawer :open="profileOpen" @close="profileOpen = false" />
   </div>
 </template>
 
@@ -139,5 +240,8 @@ async function handleSignOut() {
 .nav-item--disabled:hover {
   background: none;
   color: var(--ink-2);
+}
+.autocomplete-item--active {
+  background: var(--accent-soft);
 }
 </style>

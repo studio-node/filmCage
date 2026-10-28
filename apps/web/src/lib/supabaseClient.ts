@@ -9,4 +9,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
-export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '')
+// PKCE: auth redirects (OAuth, password-reset/confirmation links) come back as
+// ?code=... instead of tokens in the #fragment, which would collide with hash routing.
+export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '', {
+  auth: { flowType: 'pkce' },
+})

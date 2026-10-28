@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errors'
+import { useCatalogStore } from '../stores/catalog'
 
 interface Category {
   id: string
@@ -15,6 +16,7 @@ interface Location {
 
 const categories = ref<Category[]>([])
 const locations = ref<Location[]>([])
+const catalog = useCatalogStore()
 const loadingOptions = ref(true)
 const optionsError = ref('')
 
@@ -131,6 +133,10 @@ async function handleSubmit() {
     } (labeled 1–${quantity.value}).`
     createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '', serial_number: '' }))
     resetForm()
+    // New item models change what the catalog store has cached, which
+    // now feeds both Browse Equipment and the top-nav search — force
+    // a refetch so the new item shows up without a full page reload.
+    catalog.ensureLoaded(true)
   } catch (e) {
     error.value = errorMessage(e, 'Could not add this item.')
   } finally {

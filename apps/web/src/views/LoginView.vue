@@ -16,7 +16,7 @@ async function onSubmit() {
   submitting.value = true
   try {
     await auth.signIn(email.value, password.value)
-    router.push('/catalog')
+    router.push({ name: 'dashboard' })
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Sign in failed'
   } finally {
