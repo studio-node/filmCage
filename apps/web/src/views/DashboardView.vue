@@ -73,6 +73,76 @@ const tierActionBusyId = ref<string | null>(null)
 const tierActionError = ref('')
 const STAFF_PLUS_ROLES = ['staff', 'supervisor', 'admin']
 
+// --- Pickup widget (Pickup/Return tab, see PickupReturnView.vue) --
+// A lightweight count, not the full fetch that view does -- same
+// "30 minutes before the scheduled time, and I haven't already
+// submitted my half" rule, just trimmed to what a count needs.
+const readyForPickupCount = ref(0)
+const pendingPickupConfirmCount = ref(0)
+
+interface PickupProbeRow {
+  id: string
+  status: string
+  is_group_reservation: boolean
+  allow_individual_pickup_times: boolean
+  pickup_date: string | null
+  pickup_time: string | null
+  reservation_crew: { user_id: string; pickup_time_override: string | null }[]
+  checkout_sessions: { person_user_id: string | null; person_confirmed_at: string | null; staff_confirmed_at: string | null }[]
+}
+const PICKUP_PROBE_FIELDS = `id, status, is_group_reservation, allow_individual_pickup_times, pickup_date, pickup_time,
+  reservation_crew(user_id, pickup_time_override),
+  checkout_sessions(person_user_id, person_confirmed_at, staff_confirmed_at)`
+
+function isReadyForMe(r: PickupProbeRow, userId: string) {
+  const already = r.checkout_sessions.some((s) => s.person_user_id === userId && s.person_confirmed_at)
+  if (already) return false
+  const crewRow = r.reservation_crew.find((c) => c.user_id === userId)
+  let t = r.pickup_time
+  if (r.is_group_reservation && r.allow_individual_pickup_times && crewRow?.pickup_time_override) {
+    t = crewRow.pickup_time_override
+  }
+  if (!r.pickup_date || !t) return false
+  const scheduledAt = new Date(`${r.pickup_date}T${t}`)
+  return Date.now() >= scheduledAt.getTime() - 30 * 60000
+}
+
+async function loadReadyForPickupCount(userId: string) {
+  try {
+    const [ownedRes, crewRes] = await Promise.all([
+      supabase.from('reservations').select(PICKUP_PROBE_FIELDS).eq('student_id', userId).in('status', ['approved', 'active']),
+      supabase.from('reservation_crew').select(`reservations(${PICKUP_PROBE_FIELDS})`).eq('user_id', userId),
+    ])
+    const owned = (ownedRes.data ?? []) as unknown as PickupProbeRow[]
+    const seen = new Set(owned.map((r) => r.id))
+    const asCrew: PickupProbeRow[] = []
+    for (const row of (crewRes.data ?? []) as unknown as { reservations: PickupProbeRow | null }[]) {
+      const r = row.reservations
+      if (!r || seen.has(r.id) || (r.status !== 'approved' && r.status !== 'active')) continue
+      seen.add(r.id)
+      asCrew.push(r)
+    }
+    readyForPickupCount.value = [...owned, ...asCrew].filter((r) => isReadyForMe(r, userId)).length
+  } catch {
+    readyForPickupCount.value = 0
+  }
+}
+
+async function loadPendingPickupConfirmCount() {
+  try {
+    const { data } = await supabase
+      .from('reservations')
+      .select(PICKUP_PROBE_FIELDS)
+      .in('status', ['approved', 'active'])
+    const rows = (data ?? []) as unknown as PickupProbeRow[]
+    pendingPickupConfirmCount.value = rows.filter((r) =>
+      r.checkout_sessions.some((s) => s.person_confirmed_at && !s.staff_confirmed_at)
+    ).length
+  } catch {
+    pendingPickupConfirmCount.value = 0
+  }
+}
+
 const outstandingTotal = computed(() =>
   fines.value.reduce((sum, f) => sum + Number(f.current_amount), 0)
 )
@@ -133,6 +203,10 @@ async function loadStudentDashboard(userId: string) {
   } finally {
     loading.value = false
   }
+  // Not part of the Promise.all above -- a failure here shouldn't take
+  // down the rest of the dashboard, so it's caught entirely inside
+  // loadReadyForPickupCount itself.
+  loadReadyForPickupCount(userId)
 }
 
 async function loadStaffDashboard() {
@@ -152,6 +226,7 @@ async function loadStaffDashboard() {
   } finally {
     loadingStaff.value = false
   }
+  loadPendingPickupConfirmCount()
 }
 
 async function confirmTierChange(row: PendingTierChange) {
@@ -263,6 +338,20 @@ function timeAgo(iso: string) {
         </p>
       </div>
 
+      <div
+        v-if="pendingPickupConfirmCount > 0"
+        class="banner"
+        style="background: var(--accent-soft); border: 1px solid var(--accent-soft-border); color: var(--accent-strong)"
+      >
+        <span>
+          <strong
+            >{{ pendingPickupConfirmCount }} checkout{{ pendingPickupConfirmCount === 1 ? '' : 's' }} waiting on your
+            confirmation.</strong
+          >
+        </span>
+        <router-link :to="{ name: 'pickup' }" class="btn primary small">Go to Pickup</router-link>
+      </div>
+
       <div v-if="auth.role && ['staff', 'supervisor', 'admin'].includes(auth.role)" class="card">
         <div class="section-title" style="margin-bottom: 2px">Pending tier changes</div>
         <p class="field-hint" style="margin-bottom: 12px">
@@ -329,6 +418,18 @@ function timeAgo(iso: string) {
           <strong>${{ outstandingTotal.toFixed(2) }} in outstanding fines.</strong>
           {{ fines.length }} fine{{ fines.length === 1 ? '' : 's' }} on your account.
         </span>
+      </div>
+
+      <div
+        v-if="readyForPickupCount > 0"
+        class="banner"
+        style="background: var(--accent-soft); border: 1px solid var(--accent-soft-border); color: var(--accent-strong)"
+      >
+        <span>
+          <strong>{{ readyForPickupCount }} reservation{{ readyForPickupCount === 1 ? '' : 's' }} ready for pickup.</strong>
+          Your pickup window is open now.
+        </span>
+        <router-link :to="{ name: 'pickup' }" class="btn primary small">Go to Pickup</router-link>
       </div>
 
       <div class="stat-grid">

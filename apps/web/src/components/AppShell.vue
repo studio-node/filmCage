@@ -22,7 +22,11 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'calendar', label: 'New Reservation', routeName: 'new-reservation', roles: ALL_ROLES, icon: 'calendar' },
   { key: 'reservations', label: 'My Reservations', routeName: 'reservations', roles: ALL_ROLES, icon: 'list' },
   { key: 'reservation-queue', label: 'Reservation Queue', routeName: 'reservation-queue', roles: ['staff', 'supervisor', 'admin'], icon: 'inbox' },
-  { key: 'pickup', label: 'Pickup / Return', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'truck' },
+  // Everyone gets this one now -- pickup is a student/crew action
+  // first, mirrored by staff on the same screen, not a staff-only
+  // tool. (Still labeled "Pickup / Return" even though only pickup is
+  // built so far -- return is the next pass, same nav slot.)
+  { key: 'pickup', label: 'Pickup / Return', routeName: 'pickup', roles: ALL_ROLES, icon: 'truck' },
   { key: 'analytics', label: 'Analytics', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'chart' },
   { key: 'admin', label: 'Add Items', routeName: 'admin', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
   { key: 'admin-edit', label: 'Edit Items', routeName: 'admin-edit', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },

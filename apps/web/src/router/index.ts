@@ -9,6 +9,8 @@ import ReservationQueueView from '../views/ReservationQueueView.vue'
 import ReservationDetailView from '../views/ReservationDetailView.vue'
 import AdminAddItemView from '../views/AdminAddItemView.vue'
 import EditItemsView from '../views/EditItemsView.vue'
+import PickupReturnView from '../views/PickupReturnView.vue'
+import PickupCheckoutView from '../views/PickupCheckoutView.vue'
 import { useAuthStore } from '../stores/auth'
 
 const INVENTORY_ROUTE_NAMES = new Set(['admin', 'admin-edit'])
@@ -33,6 +35,12 @@ const router = createRouter({
         { path: 'reservations', name: 'reservations', component: MyReservationsView },
         { path: 'reservations/:id', name: 'reservation-detail', component: ReservationDetailView },
         { path: 'reservation-queue', name: 'reservation-queue', component: ReservationQueueView },
+        // Everyone gets these two -- pickup is done by the student/crew
+        // themselves, mirrored by staff on the same per-reservation
+        // screen, so there's no role gate here the way there is for
+        // the Reservation Queue above.
+        { path: 'pickup', name: 'pickup', component: PickupReturnView },
+        { path: 'pickup/:id', name: 'pickup-checkout', component: PickupCheckoutView },
         { path: 'admin', name: 'admin', component: AdminAddItemView },
         { path: 'admin/items', name: 'admin-edit', component: EditItemsView },
       ],
