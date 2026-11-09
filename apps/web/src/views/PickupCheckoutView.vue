@@ -13,11 +13,13 @@ import { errorMessage } from '../lib/errors'
 //
 //   - The reservation's own student (regular) or a listed crew member
 //     (group), before they've submitted their own half: the
-//     interactive checklist. Regular auto-claims everything still on
-//     the reservation -- the only choice is which lines to cancel
-//     instead, so each line's "checkbox" IS the cancel toggle, with a
-//     confirm step. Crew is explicit free-choice of specific physical
-//     units, capped by remaining quantity.
+//     interactive checklist. Regular defaults every line to its full
+//     quantity but lets the person dial any line down -- click the
+//     row to toggle it between 0 and full, or use the +/- stepper for
+//     anything in between; a line at 0 just doesn't get submitted.
+//     Crew is explicit free-choice of specific physical units, capped
+//     by remaining quantity -- the same click-to-highlight interaction,
+//     one level down (unit, not line).
 //   - That same person after submitting: a read-only "you're in,
 //     waiting on staff" state showing exactly what they claimed.
 //   - Staff+: every session on this reservation that's been signed by
@@ -140,6 +142,14 @@ async function load() {
     // Selections don't survive a reload -- intentional, since the
     // available list itself may have just changed underneath them.
     Object.keys(selected).forEach((k) => delete selected[k])
+    // Same for the regular-reservation quantity steppers -- default
+    // every line back to its full remaining quantity on each load.
+    Object.keys(pickupQty).forEach((k) => delete pickupQty[k])
+    if (!row.value.is_group_reservation) {
+      for (const line of row.value.reservation_items) {
+        pickupQty[line.item_model_id] = line.quantity
+      }
+    }
   } catch (e) {
     error.value = errorMessage(e, 'Could not load this reservation.')
   } finally {
@@ -189,28 +199,26 @@ const scheduleLabel = computed(() => {
   )}`
 })
 
-// --- regular reservation: checkbox IS the cancel toggle -----------
-const confirmingCancel = reactive<Record<string, boolean>>({})
-const lineBusy = reactive<Record<string, boolean>>({})
-const lineError = ref('')
+// --- regular reservation: per-line quantity, 0..full -------------
+// How many of this line the person is picking up RIGHT NOW. Starts
+// at the line's full quantity (see load()); clicking the row toggles
+// it between 0 and full as a quick default, the +/- stepper allows
+// anything in between. Whatever's left at 0 when they submit gets
+// dropped from the reservation server-side (submit_pickup's
+// p_quantities) -- same end effect as the old cancel_unpicked_item,
+// just folded into one control instead of a separate destructive
+// button per line.
+const pickupQty = reactive<Record<string, number>>({})
 
-async function cancelLine(itemModelId: string) {
-  if (!row.value) return
-  lineBusy[itemModelId] = true
-  lineError.value = ''
-  try {
-    const { error: err } = await supabase.rpc('cancel_unpicked_item', {
-      p_reservation_id: row.value.id,
-      p_item_model_id: itemModelId,
-    })
-    if (err) throw err
-    confirmingCancel[itemModelId] = false
-    await load()
-  } catch (e) {
-    lineError.value = errorMessage(e, 'Could not cancel this item.')
-  } finally {
-    lineBusy[itemModelId] = false
-  }
+function qtyFor(modelId: string) {
+  return pickupQty[modelId] ?? 0
+}
+function toggleLine(line: ItemLine) {
+  pickupQty[line.item_model_id] = qtyFor(line.item_model_id) > 0 ? 0 : line.quantity
+}
+function stepQty(line: ItemLine, delta: number) {
+  const next = qtyFor(line.item_model_id) + delta
+  pickupQty[line.item_model_id] = Math.max(0, Math.min(line.quantity, next))
 }
 
 // --- crew reservation: free-choice unit selection ------------------
@@ -259,7 +267,7 @@ const submitError = ref('')
 const canSubmit = computed(() => {
   if (!row.value) return false
   if (row.value.is_group_reservation) return Object.values(selected).some((v) => v)
-  return row.value.reservation_items.length > 0
+  return row.value.reservation_items.some((line) => qtyFor(line.item_model_id) > 0)
 })
 
 function openConfirmModal() {
@@ -280,10 +288,14 @@ async function doSubmit() {
     const unitIds = row.value.is_group_reservation
       ? Object.keys(selected).filter((id) => selected[id])
       : null
+    const quantities = row.value.is_group_reservation
+      ? null
+      : Object.fromEntries(row.value.reservation_items.map((line) => [line.item_model_id, qtyFor(line.item_model_id)]))
     const { error: err } = await supabase.rpc('submit_pickup', {
       p_reservation_id: row.value.id,
       p_unit_ids: unitIds,
       p_initials: initials.value.trim(),
+      p_quantities: quantities,
     })
     if (err) throw err
     showConfirmModal.value = false
@@ -411,31 +423,38 @@ function goBack() {
         </div>
 
         <div v-else style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px">
-          <!-- Regular: each line's checkbox is the cancel toggle -->
+          <!-- Regular: click a row to toggle it, stepper for partial quantity -->
           <template v-if="!row.is_group_reservation">
-            <p class="field-hint">
-              Check off what you're taking. Not taking something? Remove it — anything left checked gets
-              claimed when you complete pickup below.
-            </p>
-            <div v-for="line in row.reservation_items" :key="line.item_model_id" class="checklist-item checked">
-              <div class="check-circle on">✓</div>
+            <p class="field-hint">Select the items you're picking up, and how many.</p>
+            <div
+              v-for="line in row.reservation_items"
+              :key="line.item_model_id"
+              class="checklist-item"
+              :class="{ checked: qtyFor(line.item_model_id) > 0 }"
+              @click="toggleLine(line)"
+            >
+              <div class="check-circle" :class="{ on: qtyFor(line.item_model_id) > 0 }">
+                <span v-if="qtyFor(line.item_model_id) > 0">✓</span>
+              </div>
               <div style="flex: 1">
                 <div style="font-weight: 600">{{ line.item_models?.name ?? 'Unknown item' }} × {{ line.quantity }}</div>
               </div>
-              <button
-                v-if="confirmingCancel[line.item_model_id] !== true"
-                class="btn ghost small"
-                :disabled="lineBusy[line.item_model_id]"
-                @click="confirmingCancel[line.item_model_id] = true"
-              >
-                Not picking this up
-              </button>
-              <div v-else style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">
-                <span class="field-hint">Remove this from your pickup?</span>
-                <button class="btn danger small" :disabled="lineBusy[line.item_model_id]" @click="cancelLine(line.item_model_id)">
-                  Yes, remove it
+              <div style="display: flex; align-items: center; gap: 8px" @click.stop>
+                <button
+                  class="btn ghost small"
+                  :disabled="qtyFor(line.item_model_id) <= 0"
+                  @click="stepQty(line, -1)"
+                >
+                  −
                 </button>
-                <button class="btn ghost small" @click="confirmingCancel[line.item_model_id] = false">Never mind</button>
+                <span style="min-width: 1.5em; text-align: center; font-weight: 600">{{ qtyFor(line.item_model_id) }}</span>
+                <button
+                  class="btn ghost small"
+                  :disabled="qtyFor(line.item_model_id) >= line.quantity"
+                  @click="stepQty(line, 1)"
+                >
+                  +
+                </button>
               </div>
             </div>
             <p v-if="row.reservation_items.length === 0" class="empty-note">
@@ -474,8 +493,6 @@ function goBack() {
               </p>
             </div>
           </template>
-
-          <p v-if="lineError" class="error-note">{{ lineError }}</p>
 
           <button class="btn primary" :disabled="!canSubmit" @click="openConfirmModal">Complete Pickup</button>
         </div>
