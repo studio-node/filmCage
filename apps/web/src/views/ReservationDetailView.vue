@@ -212,6 +212,11 @@ const canCancel = computed(() => {
 // extend it to staff as well" (Suzanne, confirming it isn't admin-only).
 const canDelete = computed(() => !!row.value && isStaffPlus.value && !isLocked.value)
 
+// Early return: a stopgap ahead of the real Return/check-in feature --
+// any active reservation's own student or staff+ can close it out early.
+// Whole-reservation, same ownership shape as cancel/delete.
+const canReturnEarly = computed(() => !!row.value && row.value.status === 'active' && (isOwner.value || isStaffPlus.value))
+
 // A plain `staff` actor can never approve/deny their own -- supervisor
 // and admin can. Mirrors the database guard exactly; this is only
 // what decides whether the buttons show, the trigger is what actually
@@ -541,6 +546,10 @@ async function saveEdit() {
         saveError.value = 'Drop-off must be after pickup.'
         return
       }
+      if (draftPickupDate.value < today) {
+        saveError.value = "Pickup date can't be in the past."
+        return
+      }
     }
 
     // Crew/assignment validation -- mirrors NewReservationView.vue's
@@ -645,6 +654,30 @@ async function saveEdit() {
           if (insErr) throw insErr
         }
       }
+
+      // After every delete/update/insert above has committed, check
+      // whether this save just emptied the reservation -- the one safe
+      // point for this check (same reasoning as cancel_unpicked_item's
+      // own inline call to the same RPC): checking after each individual
+      // row change instead would falsely collapse a reservation mid-save
+      // when someone swaps one item for another.
+      const { error: collapseErr } = await supabase.rpc('auto_cancel_if_empty', { p_reservation_id: r.id })
+      if (collapseErr) throw collapseErr
+      const { data: freshStatus, error: statusErr } = await supabase
+        .from('reservations')
+        .select('status')
+        .eq('id', r.id)
+        .single()
+      if (statusErr) throw statusErr
+      if (freshStatus?.status === 'cancelled' && r.status !== 'cancelled') {
+        // It just collapsed -- nothing left to patch, and the
+        // reservations-row update below would otherwise fail against a
+        // now-terminal row (reservations_approval_guard locks cancelled
+        // rows). Done; show the collapsed state.
+        editing.value = false
+        await load()
+        return
+      }
     }
 
     // Editing a denied reservation has to explicitly ask to re-enter
@@ -683,6 +716,7 @@ async function saveEdit() {
 // ---- cancel / delete / approve / deny ------------------------------
 const confirmingCancel = ref(false)
 const confirmingDelete = ref(false)
+const confirmingReturn = ref(false)
 const deleteBlockers = ref<{ fines: number; reviews: number; occurrences: number } | null>(null)
 const denying = ref(false)
 const denyReason = ref('')
@@ -739,6 +773,21 @@ async function doCancel() {
     await load()
   } catch (e) {
     actionError.value = errorMessage(e, 'Could not cancel this reservation.')
+  } finally {
+    busy.value = false
+  }
+}
+async function doReturnEarly() {
+  if (!row.value) return
+  busy.value = true
+  actionError.value = ''
+  try {
+    const { error: err } = await supabase.rpc('return_reservation_early', { p_reservation_id: row.value.id })
+    if (err) throw err
+    confirmingReturn.value = false
+    await load()
+  } catch (e) {
+    actionError.value = errorMessage(e, 'Could not return this equipment early.')
   } finally {
     busy.value = false
   }
@@ -862,6 +911,9 @@ async function doDelete() {
             Cancel reservation
           </button>
           <button v-if="canDelete && !confirmingDelete" class="btn ghost small" :disabled="busy" @click="openDeletePrompt">Delete…</button>
+          <button v-if="canReturnEarly && !confirmingReturn" class="btn ghost small" :disabled="busy" @click="confirmingReturn = true">
+            Return equipment early
+          </button>
         </div>
 
         <div v-if="denying" class="field" style="margin-top: 10px">
@@ -894,6 +946,14 @@ async function doDelete() {
             </div>
           </template>
         </div>
+
+        <div v-if="confirmingReturn" class="field-hint" style="margin-top: 10px">
+          Are you sure you want to return the equipment early? This closes out the whole reservation now, ahead of its scheduled drop-off.
+          <div style="display: flex; gap: 8px; margin-top: 6px">
+            <button class="btn primary small" :disabled="busy" @click="doReturnEarly">Yes, return it now</button>
+            <button class="btn ghost small" @click="confirmingReturn = false">Never mind</button>
+          </div>
+        </div>
       </template>
 
       <!-- ---- edit mode ---- -->
@@ -902,7 +962,7 @@ async function doDelete() {
           <div class="field-row">
             <div class="field">
               <label>Pickup date</label>
-              <input v-model="draftPickupDate" type="date" />
+              <input v-model="draftPickupDate" type="date" :min="today" />
             </div>
             <div class="field">
               <label>Pickup time</label>
@@ -912,7 +972,7 @@ async function doDelete() {
           <div class="field-row" style="margin-top: 10px">
             <div class="field">
               <label>Drop-off date</label>
-              <input v-model="draftDropoffDate" type="date" />
+              <input v-model="draftDropoffDate" type="date" :min="draftPickupDate || today" />
             </div>
             <div class="field">
               <label>Drop-off time</label>

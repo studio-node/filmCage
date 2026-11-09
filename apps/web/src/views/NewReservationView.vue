@@ -116,6 +116,12 @@ const pickupTime = ref('')
 const dropoffDate = ref('')
 const dropoffTime = ref('')
 
+// Floor for the date pickers below -- informational/UX only, same as the
+// APPROVAL_ITEM_THRESHOLD comment above: the database (reservations_approval_guard)
+// is what actually rejects a past pickup date, this just keeps someone from
+// picking one in the first place.
+const todayStr = computed(() => new Date().toISOString().slice(0, 10))
+
 const isGroupReservation = ref(false)
 const allowIndividualPickupTimes = ref(false)
 const crew = reactive<CrewRow[]>([])
@@ -648,6 +654,7 @@ function validate(): string | null {
     return 'Pick a requested pre-pickup appointment date.'
   }
   if (!scheduleReady.value) return 'Pick a valid pickup and drop-off date and time.'
+  if (pickupDate.value < todayStr.value) return 'Pickup date can\'t be in the past.'
   if (isGroupReservation.value && crew.some((c) => c.query.trim() && !c.userId)) {
     return 'Pick a real person from the list for every crew member, or remove the row.'
   }
@@ -893,11 +900,11 @@ async function submitReservation() {
         <div class="field-row">
           <div class="field">
             <label>Pickup date</label>
-            <input v-model="pickupDate" type="date" />
+            <input v-model="pickupDate" type="date" :min="todayStr" />
           </div>
           <div class="field">
             <label>Drop-off date</label>
-            <input v-model="dropoffDate" type="date" />
+            <input v-model="dropoffDate" type="date" :min="pickupDate || todayStr" />
           </div>
         </div>
         <div v-if="pickupNote" :class="pickupNote.tone">{{ pickupNote.text }}</div>

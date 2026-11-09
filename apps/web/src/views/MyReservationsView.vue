@@ -210,6 +210,16 @@ function cancellable(r: ReservationRow) {
   return !r.myCrewRowId && bucket(r) === 'upcoming'
 }
 
+// Early return stopgap (ahead of the real Return/check-in feature):
+// any active reservation's own holder can close it out early. Same
+// crew-member exclusion as cancellable() -- this closes out everyone's
+// gear on the reservation at once, not just a crew member's own share,
+// so it's only offered to the actual holder here (staff viewing
+// someone else's gets the same action from ReservationDetailView.vue).
+function returnableEarly(r: ReservationRow) {
+  return !r.myCrewRowId && r.status === 'active'
+}
+
 // Self-edit rule, identical to ReservationDetailView.vue's own
 // selfEditable(): full checks always apply to your own edits
 // regardless of role, and once a reservation that needed real review
@@ -227,6 +237,7 @@ function editable(r: ReservationRow) {
 }
 
 const confirmingCancelId = ref<string | null>(null)
+const confirmingReturnId = ref<string | null>(null)
 const busy = ref<Record<string, boolean>>({})
 const actionError = ref<Record<string, string>>({})
 
@@ -262,6 +273,21 @@ async function cancelReservation(r: ReservationRow) {
     await load()
   } catch (e) {
     actionError.value = { ...actionError.value, [r.id]: errorMessage(e, 'Could not cancel this reservation.') }
+  } finally {
+    busy.value = { ...busy.value, [r.id]: false }
+  }
+}
+
+async function returnEarly(r: ReservationRow) {
+  busy.value = { ...busy.value, [r.id]: true }
+  actionError.value = { ...actionError.value, [r.id]: '' }
+  try {
+    const { error: err } = await supabase.rpc('return_reservation_early', { p_reservation_id: r.id })
+    if (err) throw err
+    confirmingReturnId.value = null
+    await load()
+  } catch (e) {
+    actionError.value = { ...actionError.value, [r.id]: errorMessage(e, 'Could not return this equipment early.') }
   } finally {
     busy.value = { ...busy.value, [r.id]: false }
   }
@@ -363,12 +389,27 @@ async function cancelReservation(r: ReservationRow) {
                 <button v-if="cancellable(r) && confirmingCancelId !== r.id" class="btn ghost small" :disabled="busy[r.id]" @click="confirmingCancelId = r.id">
                   Cancel reservation
                 </button>
+                <button
+                  v-if="returnableEarly(r) && confirmingReturnId !== r.id"
+                  class="btn ghost small"
+                  :disabled="busy[r.id]"
+                  @click="confirmingReturnId = r.id"
+                >
+                  Return equipment early
+                </button>
               </div>
               <div v-if="confirmingCancelId === r.id" class="field-hint" style="margin-top: 10px" @click.stop>
                 Cancel this reservation? This can't be undone.
                 <div style="display: flex; gap: 8px; margin-top: 6px">
                   <button class="btn primary small" :disabled="busy[r.id]" @click="cancelReservation(r)">Yes, cancel it</button>
                   <button class="btn ghost small" @click="confirmingCancelId = null">Never mind</button>
+                </div>
+              </div>
+              <div v-if="confirmingReturnId === r.id" class="field-hint" style="margin-top: 10px" @click.stop>
+                Are you sure you want to return the equipment early? This closes out the whole reservation now, ahead of its scheduled drop-off.
+                <div style="display: flex; gap: 8px; margin-top: 6px">
+                  <button class="btn primary small" :disabled="busy[r.id]" @click="returnEarly(r)">Yes, return it now</button>
+                  <button class="btn ghost small" @click="confirmingReturnId = null">Never mind</button>
                 </div>
               </div>
             </div>
