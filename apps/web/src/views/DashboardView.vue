@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../lib/errors'
@@ -44,9 +45,13 @@ interface NotificationRow {
 // A student flagged their own account for tier review (changed their
 // class on the new profile drawer) — self-service editing never
 // moves tier itself, only this flag, so staff decide from here
-// whether the new class's mapped tier actually takes effect.
-interface PendingTierChange {
+// whether the new class's mapped tier actually takes effect. Folded
+// into the same "Needs your approval" list as reservations below (11/11
+// pass) rather than its own separate card — same kind of item from a
+// staff member's point of view, just a different shape.
+interface TierChangeRow {
   user_id: string
+  updated_at: string
   tier: 'beginner' | 'intermediate' | 'advanced' | null
   class_taken: string | null
   users: { full_name: string; email: string } | null
@@ -57,7 +62,43 @@ interface PendingTierChange {
   } | null
 }
 
+// One row shape, fed by one query, used for BOTH "needs your approval"
+// (status === 'pending') and "upcoming pickups & drop-offs" (any of
+// pending/approved/active with a date set) — see appointmentEvents
+// below. Mirrors ReservationQueueView.vue's own ReservationRow closely
+// on purpose, since the approval half of this card reuses that same
+// permission rule and the same reasons()/formatDate() logic.
+interface DashboardReservationRow {
+  id: string
+  reservation_name: string
+  status: ReservationStatus
+  is_capstone: boolean
+  is_group_reservation: boolean
+  capstone_appointment_date: string | null
+  appointment_completed: boolean
+  pickup_date: string | null
+  pickup_time: string | null
+  dropoff_date: string | null
+  dropoff_time: string | null
+  created_at: string
+  locations: { name: string } | null
+  reservation_items: { quantity: number; item_models: { name: string } | null }[]
+  student: { id: string; full_name: string | null; email: string | null } | null
+}
+
+type ApprovalItem =
+  | { kind: 'reservation'; at: string; row: DashboardReservationRow }
+  | { kind: 'tier_change'; at: string; row: TierChangeRow }
+
+interface AppointmentEvent {
+  type: 'pickup' | 'dropoff'
+  date: string
+  time: string | null
+  reservation: DashboardReservationRow
+}
+
 const auth = useAuthStore()
+const router = useRouter()
 const loading = ref(true)
 const error = ref('')
 
@@ -66,12 +107,144 @@ const fines = ref<FineRow[]>([])
 const reservations = ref<ReservationRow[]>([])
 const notifications = ref<NotificationRow[]>([])
 
-const pendingTierChanges = ref<PendingTierChange[]>([])
+const dashboardReservations = ref<DashboardReservationRow[]>([])
+const tierChanges = ref<TierChangeRow[]>([])
 const loadingStaff = ref(false)
 const staffError = ref('')
-const tierActionBusyId = ref<string | null>(null)
-const tierActionError = ref('')
+const actionBusy = ref<Record<string, boolean>>({})
+const actionErrors = ref<Record<string, string>>({})
+const denyingId = ref<string | null>(null)
+const denyReason = ref('')
 const STAFF_PLUS_ROLES = ['staff', 'supervisor', 'admin']
+
+const DASH_RESERVATION_FIELDS = `id, reservation_name, status, is_capstone, is_group_reservation,
+  capstone_appointment_date, appointment_completed,
+  pickup_date, pickup_time, dropoff_date, dropoff_time, created_at,
+  locations(name),
+  reservation_items(quantity, item_models(name)),
+  student:users!reservations_student_id_fkey(id, full_name, email)`
+
+const APPROVAL_ITEM_THRESHOLD = 20
+const LEAD_TIME_DAYS = 3
+const CAPSTONE_LEAD_TIME_DAYS = 7
+const LOAN_WINDOW_DAYS = 3
+
+// A plain `staff` actor can never approve/deny their OWN personal
+// reservation — reservations_approval_guard() rejects it outright
+// regardless of this filter (supervisor/admin CAN self-approve). This
+// is the exact same permission rule ReservationQueueView.vue's own
+// pendingRows already applies — kept in sync by hand since there's no
+// shared composable for it yet; if that rule ever changes, change it
+// in both places.
+function canActOnReservation(r: DashboardReservationRow) {
+  return !(auth.role === 'staff' && r.student?.id === auth.user?.id)
+}
+
+// Mirrors reservations_approval_guard()'s own rules — purely
+// informational, same logic as ReservationQueueView.vue's reasons().
+function reservationReasons(r: DashboardReservationRow): string[] {
+  const out: string[] = []
+  const itemCount = r.reservation_items.reduce((sum, l) => sum + l.quantity, 0)
+  if (itemCount > APPROVAL_ITEM_THRESHOLD) out.push(`Over ${APPROVAL_ITEM_THRESHOLD} items`)
+  const isFriday = (d: string | null) => d && new Date(d + 'T12:00:00').getDay() === 5
+  if (isFriday(r.pickup_date)) out.push('Friday pickup')
+  if (isFriday(r.dropoff_date)) out.push('Friday drop-off')
+  if (r.pickup_date) {
+    const leadTimeDays = r.is_capstone ? CAPSTONE_LEAD_TIME_DAYS : LEAD_TIME_DAYS
+    const leadDays = (new Date(r.pickup_date + 'T12:00:00').getTime() - Date.now()) / 86400000
+    if (leadDays < leadTimeDays) out.push(`Under ${leadTimeDays}-day lead time`)
+  }
+  if (r.pickup_date && r.dropoff_date) {
+    const loanDays =
+      (new Date(r.dropoff_date + 'T12:00:00').getTime() - new Date(r.pickup_date + 'T12:00:00').getTime()) / 86400000
+    if (loanDays > LOAN_WINDOW_DAYS) out.push(`Over ${LOAN_WINDOW_DAYS}-day loan window`)
+  }
+  return out
+}
+
+function itemSummary(r: DashboardReservationRow) {
+  return (
+    r.reservation_items
+      .map((l) => `${l.item_models?.name ?? 'Unknown item'}${l.quantity > 1 ? ` ×${l.quantity}` : ''}`)
+      .join(', ') || 'No items'
+  )
+}
+
+// The unified approvals list — reservations pending approval (filtered
+// to only what the viewer's own role can act on) plus tier-reconfirmation
+// requests, merged into one list and sorted oldest-first so the
+// longest-waiting item floats to the top regardless of which kind it
+// is. Replaces the old separate "Pending tier changes" card — Suzanne's
+// ask (11/11): "no need to have a second separate tier change area."
+const approvalItems = computed<ApprovalItem[]>(() => {
+  const resItems: ApprovalItem[] = dashboardReservations.value
+    .filter((r) => r.status === 'pending' && canActOnReservation(r))
+    .map((r) => ({ kind: 'reservation' as const, at: r.created_at, row: r }))
+  const tierItems: ApprovalItem[] = tierChanges.value.map((r) => ({
+    kind: 'tier_change' as const,
+    at: r.updated_at,
+    row: r,
+  }))
+  return [...resItems, ...tierItems].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+})
+
+// Upcoming pickups & drop-offs — a flat, chronological list for now
+// ("eventually a full calendar... for now just a list", per Suzanne).
+// A reservation contributes a pickup event only while it's still
+// pending/approved (once active, the pickup already happened — that
+// date is history, not an upcoming appointment); it contributes a
+// drop-off event at any of pending/approved/active, since the return
+// is still ahead of it either way.
+const todayStr = new Date().toISOString().slice(0, 10)
+
+const appointmentEvents = computed<AppointmentEvent[]>(() => {
+  const events: AppointmentEvent[] = []
+  for (const r of dashboardReservations.value) {
+    if ((r.status === 'pending' || r.status === 'approved') && r.pickup_date) {
+      events.push({ type: 'pickup', date: r.pickup_date, time: r.pickup_time, reservation: r })
+    }
+    if (r.dropoff_date) {
+      events.push({ type: 'dropoff', date: r.dropoff_date, time: r.dropoff_time, reservation: r })
+    }
+  }
+  return events.sort((a, b) => {
+    const byDate = a.date.localeCompare(b.date)
+    if (byDate !== 0) return byDate
+    return (a.time ?? '').localeCompare(b.time ?? '')
+  })
+})
+
+interface AppointmentDayGroup {
+  date: string
+  label: string
+  events: AppointmentEvent[]
+}
+
+function dayLabel(dateStr: string) {
+  const diffDays = Math.round(
+    (new Date(dateStr + 'T00:00:00').getTime() - new Date(todayStr + 'T00:00:00').getTime()) / 86400000
+  )
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Tomorrow'
+  const label = new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+  return diffDays < 0 ? `${label} — overdue` : label
+}
+
+// appointmentEvents is already sorted ascending, so the Map below
+// groups by day in the same ascending order (JS Maps preserve
+// insertion order) — no separate sort needed here.
+const appointmentGroups = computed<AppointmentDayGroup[]>(() => {
+  const byDate = new Map<string, AppointmentEvent[]>()
+  for (const e of appointmentEvents.value) {
+    if (!byDate.has(e.date)) byDate.set(e.date, [])
+    byDate.get(e.date)!.push(e)
+  }
+  return [...byDate.entries()].map(([date, events]) => ({ date, label: dayLabel(date), events }))
+})
 
 // --- Pickup widget (Pickup/Return tab, see PickupReturnView.vue) --
 // A lightweight count, not the full fetch that view does -- same
@@ -213,65 +386,148 @@ async function loadStaffDashboard() {
   loadingStaff.value = true
   staffError.value = ''
   try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select(
-        'user_id, tier, class_taken, users!user_profiles_user_id_fkey(full_name, email), course_tier_mappings!user_profiles_class_taken_fkey(course_name, course_code, tier)'
-      )
-      .eq('needs_tier_reconfirmation', true)
-    if (error) throw error
-    pendingTierChanges.value = (data ?? []) as unknown as PendingTierChange[]
+    const [resRes, tierRes] = await Promise.all([
+      supabase
+        .from('reservations')
+        .select(DASH_RESERVATION_FIELDS)
+        .in('status', ['pending', 'approved', 'active'])
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('user_profiles')
+        .select(
+          'user_id, updated_at, tier, class_taken, users!user_profiles_user_id_fkey(full_name, email), course_tier_mappings!user_profiles_class_taken_fkey(course_name, course_code, tier)'
+        )
+        .eq('needs_tier_reconfirmation', true),
+    ])
+    if (resRes.error) throw resRes.error
+    if (tierRes.error) throw tierRes.error
+    dashboardReservations.value = (resRes.data ?? []) as unknown as DashboardReservationRow[]
+    tierChanges.value = (tierRes.data ?? []) as unknown as TierChangeRow[]
   } catch (e) {
-    staffError.value = errorMessage(e, 'Could not load pending tier changes.')
+    staffError.value = errorMessage(e, 'Could not load the staff dashboard.')
   } finally {
     loadingStaff.value = false
   }
   loadPendingPickupConfirmCount()
 }
 
-async function confirmTierChange(row: PendingTierChange) {
+function setActionBusy(id: string, val: boolean) {
+  actionBusy.value = { ...actionBusy.value, [id]: val }
+}
+function setActionError(id: string, msg: string) {
+  actionErrors.value = { ...actionErrors.value, [id]: msg }
+}
+
+async function confirmTierChange(row: TierChangeRow) {
   const newTier = row.course_tier_mappings?.tier
   if (!newTier) return
-  tierActionError.value = ''
-  tierActionBusyId.value = row.user_id
+  setActionError(row.user_id, '')
+  setActionBusy(row.user_id, true)
   try {
     const { error } = await supabase
       .from('user_profiles')
       .update({ tier: newTier, needs_tier_reconfirmation: false })
       .eq('user_id', row.user_id)
     if (error) throw error
-    pendingTierChanges.value = pendingTierChanges.value.filter((r) => r.user_id !== row.user_id)
+    tierChanges.value = tierChanges.value.filter((r) => r.user_id !== row.user_id)
   } catch (e) {
-    tierActionError.value = errorMessage(e, 'Could not confirm this tier change.')
+    setActionError(row.user_id, errorMessage(e, 'Could not confirm this tier change.'))
   } finally {
-    tierActionBusyId.value = null
+    setActionBusy(row.user_id, false)
   }
 }
 
-async function dismissTierChange(row: PendingTierChange) {
-  tierActionError.value = ''
-  tierActionBusyId.value = row.user_id
+async function dismissTierChange(row: TierChangeRow) {
+  setActionError(row.user_id, '')
+  setActionBusy(row.user_id, true)
   try {
     const { error } = await supabase
       .from('user_profiles')
       .update({ needs_tier_reconfirmation: false })
       .eq('user_id', row.user_id)
     if (error) throw error
-    pendingTierChanges.value = pendingTierChanges.value.filter((r) => r.user_id !== row.user_id)
+    tierChanges.value = tierChanges.value.filter((r) => r.user_id !== row.user_id)
   } catch (e) {
-    tierActionError.value = errorMessage(e, 'Could not dismiss this request.')
+    setActionError(row.user_id, errorMessage(e, 'Could not dismiss this request.'))
   } finally {
-    tierActionBusyId.value = null
+    setActionBusy(row.user_id, false)
   }
+}
+
+// Reservation approve/deny/mark-meeting-complete — same RPC-free direct
+// updates ReservationQueueView.vue uses (reservations_approval_guard
+// does the real enforcement either way), just reachable from the
+// dashboard's own compact card so staff don't have to jump to the full
+// Queue for the common case. Refetches afterward rather than splicing
+// locally, since an approve/deny also changes which appointment bucket
+// the row falls into below.
+async function approveReservation(r: DashboardReservationRow) {
+  setActionBusy(r.id, true)
+  setActionError(r.id, '')
+  try {
+    const { error } = await supabase
+      .from('reservations')
+      .update({ status: 'approved', approved_by: auth.user!.id, approved_at: new Date().toISOString() })
+      .eq('id', r.id)
+    if (error) throw error
+    await loadStaffDashboard()
+  } catch (e) {
+    setActionError(r.id, errorMessage(e, 'Could not approve this reservation.'))
+    setActionBusy(r.id, false)
+  }
+}
+
+function startDenyReservation(r: DashboardReservationRow) {
+  denyingId.value = r.id
+  denyReason.value = ''
+}
+function cancelDenyReservation() {
+  denyingId.value = null
+  denyReason.value = ''
+}
+async function confirmDenyReservation(r: DashboardReservationRow) {
+  if (!denyReason.value.trim()) return
+  setActionBusy(r.id, true)
+  setActionError(r.id, '')
+  try {
+    const { error } = await supabase
+      .from('reservations')
+      .update({ status: 'denied', denial_reason: denyReason.value.trim() })
+      .eq('id', r.id)
+    if (error) throw error
+    denyingId.value = null
+    denyReason.value = ''
+    await loadStaffDashboard()
+  } catch (e) {
+    setActionError(r.id, errorMessage(e, 'Could not deny this reservation.'))
+    setActionBusy(r.id, false)
+  }
+}
+
+async function markAppointmentComplete(r: DashboardReservationRow) {
+  setActionBusy(r.id, true)
+  setActionError(r.id, '')
+  try {
+    const { error } = await supabase.from('reservations').update({ appointment_completed: true }).eq('id', r.id)
+    if (error) throw error
+    await loadStaffDashboard()
+  } catch (e) {
+    setActionError(r.id, errorMessage(e, 'Could not mark the meeting complete.'))
+    setActionBusy(r.id, false)
+  }
+}
+
+function openReservation(r: DashboardReservationRow) {
+  router.push({ name: 'reservation-detail', params: { id: r.id } })
 }
 
 // This dashboard is the student view — checkouts, fines, and
 // reservations all scoped to the signed-in student. Staff/supervisor/
-// admin get a lightweight placeholder for the rest (queue to approve,
-// items overdue org-wide, etc. — a later phase), but now see real
-// pending tier-change requests above it (see ProfileDrawer.vue —
-// self-service class editing never moves tier itself, only flags the
-// account here for review).
+// admin get a real approval queue (reservations + tier changes, merged
+// and permission-filtered — see approvalItems above) and an upcoming
+// pickups/drop-offs list (see appointmentGroups above). Org-wide
+// checkout status beyond what's listed here, and analytics, are still
+// a later build phase.
 const isStudentView = computed(() => !auth.role || auth.role === 'student')
 
 watch(
@@ -293,6 +549,15 @@ function formatDate(date: string | null) {
     month: 'short',
     day: 'numeric',
   })
+}
+
+function formatTime(t: string | null) {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  let h12 = h % 12
+  if (h12 === 0) h12 = 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 function timeAgo(iso: string) {
@@ -333,8 +598,9 @@ function timeAgo(iso: string) {
           dashboard
         </div>
         <p style="color: var(--ink-2)">
-          The full staff/admin dashboard (approval queue, org-wide checkout status, analytics) is
-          coming in a later build phase. For now, use Browse Equipment to see the live catalog.
+          Org-wide analytics and a full calendar view are still coming in a later build phase. For
+          now: everything below that needs your approval, and every upcoming pickup/drop-off, in
+          one place.
         </p>
       </div>
 
@@ -352,45 +618,197 @@ function timeAgo(iso: string) {
         <router-link :to="{ name: 'pickup' }" class="btn primary small">Go to Pickup</router-link>
       </div>
 
-      <div v-if="auth.role && ['staff', 'supervisor', 'admin'].includes(auth.role)" class="card">
-        <div class="section-title" style="margin-bottom: 2px">Pending tier changes</div>
+      <!-- ============ Needs your approval — reservations + tier changes, merged, permission-filtered ============ -->
+      <div class="card">
+        <div class="section-title" style="margin-bottom: 2px">
+          Needs your approval
+          <span v-if="approvalItems.length" class="badge-mini">{{ approvalItems.length }}</span>
+        </div>
         <p class="field-hint" style="margin-bottom: 12px">
-          Students who changed their class on their own profile — their tier stays put until you
-          confirm or dismiss it here.
+          Reservations and tier-change requests you're able to act on — a plain staff account's own
+          reservation is left off this list for everyone else to review, same as the Reservation
+          Queue.
         </p>
         <p v-if="loadingStaff">Loading…</p>
         <p v-else-if="staffError" class="error-note">{{ staffError }}</p>
-        <p v-else-if="pendingTierChanges.length === 0" class="empty-note">Nothing pending.</p>
+        <p v-else-if="approvalItems.length === 0" class="empty-note">Nothing waiting on approval.</p>
         <div v-else style="display: flex; flex-direction: column; gap: 10px">
-          <p v-if="tierActionError" class="error-note">{{ tierActionError }}</p>
-          <div v-for="row in pendingTierChanges" :key="row.user_id" class="card-flat" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
-            <div>
-              <div style="font-weight: 600">{{ row.users?.full_name ?? 'Unknown student' }}</div>
-              <div class="field-hint">{{ row.users?.email }}</div>
-              <div style="margin-top: 4px; font-size: 12.5px">
-                Took
-                <strong>{{ row.course_tier_mappings?.course_code ?? row.course_tier_mappings?.course_name ?? '—' }}</strong>
-                — currently
-                <span class="badge violet" style="text-transform: capitalize">{{ row.tier }} tier</span>
-                → requests
-                <span class="badge accent" style="text-transform: capitalize">{{ row.course_tier_mappings?.tier ?? '?' }} tier</span>
+          <!-- Reservation approval item -->
+          <div
+            v-for="item in approvalItems"
+            :key="`${item.kind}-${item.kind === 'reservation' ? item.row.id : item.row.user_id}`"
+            class="card-flat"
+          >
+            <template v-if="item.kind === 'reservation'">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
+                <div>
+                  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+                    <span class="badge accent" v-if="item.row.is_capstone">Capstone</span>
+                    <span class="badge violet" v-if="item.row.is_group_reservation">Group production</span>
+                  </div>
+                  <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
+                    {{ item.row.reservation_name }} · {{ item.row.locations?.name ?? '—' }}
+                  </div>
+                  <div style="font-size: 12.5px; color: var(--ink-2); margin-top: 2px">
+                    {{ item.row.student?.full_name ?? item.row.student?.email ?? 'Unknown student' }} ·
+                    {{ formatDate(item.row.pickup_date) }} {{ formatTime(item.row.pickup_time) }} →
+                    {{ formatDate(item.row.dropoff_date) }} {{ formatTime(item.row.dropoff_time) }}
+                  </div>
+                </div>
+                <span class="badge" :class="toneForReservationStatus(item.row.status)">{{
+                  reservationStatusLabel(item.row.status)
+                }}</span>
               </div>
-            </div>
-            <div style="display: flex; gap: 6px">
-              <button
-                class="btn ghost small"
-                :disabled="tierActionBusyId === row.user_id"
-                @click="dismissTierChange(row)"
+
+              <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">{{ itemSummary(item.row) }}</div>
+              <div v-if="reservationReasons(item.row).length" class="field-hint" style="margin-top: 8px">
+                Needs approval: {{ reservationReasons(item.row).join(', ') }}
+              </div>
+
+              <div
+                v-if="item.row.is_capstone"
+                class="card-flat"
+                style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px"
               >
-                Dismiss
-              </button>
-              <button
-                class="btn primary small"
-                :disabled="tierActionBusyId === row.user_id || !row.course_tier_mappings"
-                @click="confirmTierChange(row)"
+                <div class="field-hint">
+                  Pre-pickup meeting: {{ formatDate(item.row.capstone_appointment_date) }} —
+                  {{ item.row.appointment_completed ? 'Completed' : 'Not yet completed' }}
+                </div>
+                <button
+                  v-if="!item.row.appointment_completed"
+                  class="btn small"
+                  style="align-self: flex-start"
+                  :disabled="actionBusy[item.row.id]"
+                  @click="markAppointmentComplete(item.row)"
+                >
+                  {{ actionBusy[item.row.id] ? 'Saving…' : 'Mark meeting complete' }}
+                </button>
+              </div>
+
+              <p v-if="actionErrors[item.row.id]" class="error-note" style="margin-top: 8px">
+                {{ actionErrors[item.row.id] }}
+              </p>
+
+              <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap">
+                <button
+                  class="btn small"
+                  :class="item.row.is_capstone ? 'capstone' : 'primary'"
+                  :disabled="actionBusy[item.row.id]"
+                  @click="approveReservation(item.row)"
+                >
+                  {{ item.row.is_capstone ? 'Approve (Capstone)' : 'Approve' }}
+                </button>
+                <button class="btn ghost small" :disabled="actionBusy[item.row.id]" @click="startDenyReservation(item.row)">
+                  Deny
+                </button>
+                <button class="btn ghost small" :disabled="actionBusy[item.row.id]" @click="openReservation(item.row)">
+                  View details
+                </button>
+              </div>
+              <div v-if="denyingId === item.row.id" class="field" style="margin-top: 10px">
+                <label>Reason for denial</label>
+                <textarea v-model="denyReason" rows="2" placeholder="Shown to the student" />
+                <div style="display: flex; gap: 8px; margin-top: 6px">
+                  <button
+                    class="btn primary small"
+                    :disabled="actionBusy[item.row.id] || !denyReason.trim()"
+                    @click="confirmDenyReservation(item.row)"
+                  >
+                    Confirm deny
+                  </button>
+                  <button class="btn ghost small" @click="cancelDenyReservation">Never mind</button>
+                </div>
+              </div>
+            </template>
+
+            <!-- Tier-change approval item -->
+            <template v-else>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+                <div>
+                  <div style="display: flex; gap: 8px; align-items: center">
+                    <span class="badge muted">Tier change</span>
+                  </div>
+                  <div style="font-weight: 600; margin-top: 4px">{{ item.row.users?.full_name ?? 'Unknown student' }}</div>
+                  <div class="field-hint">{{ item.row.users?.email }}</div>
+                  <div style="margin-top: 4px; font-size: 12.5px">
+                    Took
+                    <strong>{{
+                      item.row.course_tier_mappings?.course_code ?? item.row.course_tier_mappings?.course_name ?? '—'
+                    }}</strong>
+                    — currently
+                    <span class="badge violet" style="text-transform: capitalize">{{ item.row.tier }} tier</span>
+                    → requests
+                    <span class="badge accent" style="text-transform: capitalize">{{
+                      item.row.course_tier_mappings?.tier ?? '?'
+                    }} tier</span>
+                  </div>
+                  <p v-if="actionErrors[item.row.user_id]" class="error-note" style="margin-top: 6px">
+                    {{ actionErrors[item.row.user_id] }}
+                  </p>
+                </div>
+                <div style="display: flex; gap: 6px">
+                  <button
+                    class="btn ghost small"
+                    :disabled="actionBusy[item.row.user_id]"
+                    @click="dismissTierChange(item.row)"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    class="btn primary small"
+                    :disabled="actionBusy[item.row.user_id] || !item.row.course_tier_mappings"
+                    @click="confirmTierChange(item.row)"
+                  >
+                    {{
+                      actionBusy[item.row.user_id] ? 'Saving…' : `Confirm → ${item.row.course_tier_mappings?.tier ?? '?'}`
+                    }}
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ Upcoming pickups & drop-offs — a flat list for now ============ -->
+      <div class="card">
+        <div class="section-title" style="margin-bottom: 2px">Upcoming pickups & drop-offs</div>
+        <p class="field-hint" style="margin-bottom: 12px">
+          Every scheduled pickup and drop-off across pending, approved, and active reservations —
+          grouped by day. A full calendar with different views is coming later; this is the list
+          version for now.
+        </p>
+        <p v-if="loadingStaff">Loading…</p>
+        <p v-else-if="staffError" class="error-note">{{ staffError }}</p>
+        <p v-else-if="appointmentGroups.length === 0" class="empty-note">Nothing scheduled.</p>
+        <div v-else style="display: flex; flex-direction: column; gap: 16px">
+          <div v-for="group in appointmentGroups" :key="group.date">
+            <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px">{{ group.label }}</div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <div
+                v-for="(event, idx) in group.events"
+                :key="`${group.date}-${event.type}-${event.reservation.id}-${idx}`"
+                class="card-flat"
+                style="display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; flex-wrap: wrap"
+                @click="openReservation(event.reservation)"
               >
-                {{ tierActionBusyId === row.user_id ? 'Saving…' : `Confirm → ${row.course_tier_mappings?.tier ?? '?'}` }}
-              </button>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                  <span class="badge" :class="event.type === 'pickup' ? 'accent' : 'warn'">
+                    {{ event.type === 'pickup' ? 'Pickup' : 'Return' }}
+                  </span>
+                  <span class="mono" style="font-size: 12.5px; color: var(--ink-2)">{{ formatTime(event.time) || '—' }}</span>
+                  <span style="font-weight: 600">{{ event.reservation.reservation_name }}</span>
+                  <span style="font-size: 12.5px; color: var(--ink-2)">
+                    {{ event.reservation.student?.full_name ?? event.reservation.student?.email ?? 'Unknown student' }} ·
+                    {{ event.reservation.locations?.name ?? '—' }}
+                  </span>
+                  <span class="badge accent" v-if="event.reservation.is_capstone">Capstone</span>
+                  <span class="badge violet" v-if="event.reservation.is_group_reservation">Group</span>
+                </div>
+                <span class="badge" :class="toneForReservationStatus(event.reservation.status)">{{
+                  reservationStatusLabel(event.reservation.status)
+                }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -531,5 +949,19 @@ function timeAgo(iso: string) {
 <style scoped>
 .error-note {
   color: var(--crit);
+}
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+/* Same capstone-approve styling as ReservationQueueView.vue, so the
+   dashboard's compact approval card matches the full Queue exactly. */
+.btn.capstone {
+  background: var(--violet);
+  border-color: var(--violet);
+  color: var(--accent-ink);
+}
+.btn.capstone:hover {
+  opacity: 0.9;
 }
 </style>
