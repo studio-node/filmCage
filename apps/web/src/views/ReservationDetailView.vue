@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { toneForReservationStatus, reservationStatusLabel, type ReservationStatus } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
+import IconBase from '../components/icons/IconBase.vue'
 
 // Shared detail/edit page for a single reservation, linked from both
 // ReservationQueueView and MyReservationsView -- "every reservation
@@ -832,7 +833,7 @@ async function doDelete() {
   <div class="view">
     <div class="view-head">
       <div>
-        <button class="btn ghost small" @click="router.back()">← Back</button>
+        <button class="btn ghost small" @click="router.back()"><IconBase name="chevron-left" :size="14" /> Back</button>
       </div>
     </div>
 
@@ -1082,7 +1083,7 @@ async function doDelete() {
                     <option value="" disabled>Select a person…</option>
                     <option v-for="opt in assigneeOptions" :key="opt.id" :value="opt.id">{{ opt.full_name }}</option>
                   </select>
-                  <button class="icon-btn" style="width: 24px; height: 24px" @click="removeSplitRow(line.item_model_id, split.id)">✕</button>
+                  <button class="icon-btn" style="width: 24px; height: 24px" @click="removeSplitRow(line.item_model_id, split.id)"><IconBase name="close" :size="12" /></button>
                 </div>
                 <button
                   class="btn ghost small"

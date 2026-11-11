@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore, type CatalogItem } from '../stores/catalog'
 import { supabase } from '../lib/supabaseClient'
+import { isDark, toggleTheme } from '../lib/theme'
 import ProfileDrawer from './ProfileDrawer.vue'
+import IconBase from './icons/IconBase.vue'
+import logoMark from '../assets/logo-mark.png'
 
 interface NavItem {
   key: string
@@ -135,17 +138,17 @@ function confirmHighlighted() {
 <template>
   <div id="app">
     <header class="topbar">
-      <button class="icon-btn nav-toggle-mobile" style="display: none" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle navigation">
-        ☰
+      <button class="icon-btn nav-toggle-mobile" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle navigation">
+        <IconBase name="menu" :size="19" />
       </button>
       <div class="brand">
-        <span class="brand-mark">FC</span>
+        <span class="brand-mark"><img :src="logoMark" alt="" /></span>
         <span>The Film Cage</span>
         <span class="brand-sub">Film Dept</span>
       </div>
 
       <div class="global-search autocomplete-wrap">
-        <span aria-hidden="true">🔍</span>
+        <IconBase name="search" :size="16" />
         <input
           v-model="catalog.query"
           type="text"
@@ -161,12 +164,11 @@ function confirmHighlighted() {
         <button
           v-if="catalog.query"
           type="button"
-          class="icon-btn"
-          style="width: 22px; height: 22px; border: none; background: none"
+          class="icon-btn search-clear"
           aria-label="Clear search"
           @mousedown.prevent="clearSearch"
         >
-          ✕
+          <IconBase name="close" :size="12" />
         </button>
         <div v-if="showSuggestions && catalog.query.trim()" class="autocomplete-list">
           <div
@@ -188,8 +190,17 @@ function confirmHighlighted() {
       </div>
 
       <div class="topbar-right">
+        <button
+          class="icon-btn"
+          type="button"
+          :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+          :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+          @click="toggleTheme"
+        >
+          <IconBase :name="isDark ? 'sun' : 'moon'" :size="17" />
+        </button>
         <button class="icon-btn" aria-label="Notifications" title="Notifications">
-          🔔
+          <IconBase name="bell" :size="17" />
           <span v-if="unreadCount > 0" class="dot"></span>
         </button>
         <button
@@ -218,6 +229,7 @@ function confirmHighlighted() {
             :class="{ 'nav-item--disabled': !item.routeName }"
             @click="!item.routeName && $event.preventDefault()"
           >
+            <IconBase :name="item.icon" :size="17" />
             <span>{{ item.label }}</span>
             <span v-if="!item.routeName" class="badge-mini">soon</span>
           </router-link>
@@ -237,6 +249,9 @@ function confirmHighlighted() {
 </template>
 
 <style scoped>
+.nav-toggle-mobile {
+  display: none;
+}
 .nav-item--disabled {
   cursor: default;
   opacity: 0.55;
@@ -247,5 +262,22 @@ function confirmHighlighted() {
 }
 .autocomplete-item--active {
   background: var(--accent-soft);
+}
+.search-clear {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+}
+.search-clear:hover {
+  background: var(--border);
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .nav-toggle-mobile {
+    display: flex;
+  }
 }
 </style>

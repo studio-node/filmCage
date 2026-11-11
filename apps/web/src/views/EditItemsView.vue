@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { toneForCondition, conditionLabel, conditionRank, type UnitCondition, toneForUnitStatus, unitStatusLabel, type UnitStatus } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
 import { useCatalogStore } from '../stores/catalog'
+import IconBase from '../components/icons/IconBase.vue'
 
 interface Category {
   id: string
@@ -504,7 +505,7 @@ async function saveAll() {
       <div class="drawer">
         <div style="display: flex; align-items: center; justify-content: space-between">
           <h2 style="font-size: 19px">Edit {{ activeItem.name }}</h2>
-          <button class="icon-btn" title="Close" aria-label="Close" @click="closeEdit">✕</button>
+          <button class="icon-btn" title="Close" aria-label="Close" @click="closeEdit"><IconBase name="close" :size="14" /></button>
         </div>
 
         <!-- ---------- item fields + compact unit list ---------- -->
@@ -629,7 +630,7 @@ async function saveAll() {
         <!-- ---------- one unit, enlarged into its own card ---------- -->
         <template v-else-if="activeUnit">
           <div style="display: flex; gap: 8px">
-            <button class="btn ghost small" @click="backToUnitList">← Back to units</button>
+            <button class="btn ghost small" @click="backToUnitList"><IconBase name="chevron-left" :size="14" /> Back to units</button>
           </div>
 
           <div class="card" style="display: flex; flex-direction: column; gap: 14px">

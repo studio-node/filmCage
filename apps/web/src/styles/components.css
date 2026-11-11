@@ -9,7 +9,13 @@
   position: sticky; top: 0; z-index: 40;
 }
 .brand { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 800; font-size: 19px; letter-spacing: -0.01em; white-space: nowrap; }
-.brand-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 600; font-size: 13px; flex: none; }
+/* Deliberately a fixed white tile, not var(--surface) -- the logo PNG
+   is a flattened export with anti-aliased edges against a white
+   background, so it keeps a faint light halo on anything darker.
+   Pinning the tile to white makes that halo invisible in both themes
+   instead of showing up as a fringe around the mark in dark mode. */
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: #FFFFFF; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none; padding: 3px; box-shadow: var(--shadow); }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; }
 .brand-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); font-weight: 500; letter-spacing: 0.03em; margin-left: 2px; padding-left: 9px; border-left: 1px solid var(--border); text-transform: uppercase; }
 
 .global-search { flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-m); padding: 0 10px; height: 36px; color: var(--ink-3); }
@@ -128,11 +134,12 @@ button.stat-tile:hover { border-color: var(--accent); box-shadow: var(--shadow);
 .item-meta-row { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 4px; }
 .item-price { font-family: var(--font-mono); font-weight: 600; font-size: 13.5px; }
 .lock-note { font-size: 11px; color: var(--crit); background: var(--crit-soft); border: 1px solid var(--crit-border); border-radius: 6px; padding: 4px 7px; display: flex; gap: 5px; align-items: center; }
+.error-note { font-size: 12.5px; color: var(--crit); background: var(--crit-soft); border: 1px solid var(--crit-border); border-radius: var(--radius-m); padding: 9px 11px; display: flex; gap: 6px; align-items: flex-start; }
 .info-note { font-size: 11px; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--accent-soft-border); border-radius: 6px; padding: 6px 8px; display: flex; gap: 6px; align-items: flex-start; }
 
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(10, 12, 11, 0.42); z-index: 60; display: flex; justify-content: flex-end; }
 .drawer { width: 440px; max-width: 92vw; background: var(--surface); height: 100%; overflow-y: auto; box-shadow: var(--shadow-lg); padding: 22px 22px 40px; display: flex; flex-direction: column; gap: 16px; }
-.drawer-thumb { height: 170px; border-radius: var(--radius-m); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 52px; }
+.drawer-thumb { height: 170px; border-radius: var(--radius-m); border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; color: var(--ink-3); }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(10, 12, 11, 0.5); z-index: 80; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal { width: 420px; max-width: 100%; background: var(--surface); border-radius: var(--radius-l); box-shadow: var(--shadow-lg); padding: 22px; display: flex; flex-direction: column; gap: 14px; }

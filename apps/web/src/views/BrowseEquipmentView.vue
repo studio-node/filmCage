@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore, type CatalogItem } from '../stores/catalog'
 import { fuzzyTest } from '../lib/fuzzySearch'
+import IconBase from '../components/icons/IconBase.vue'
 
 interface UnitRow {
   id: string
@@ -254,7 +255,7 @@ watch(
           @click="openDrawer(item)"
         >
           <div class="item-thumb">
-            <span class="glyph">🎥</span>
+            <IconBase name="camera" :size="26" class="glyph" />
           </div>
           <div class="item-body">
             <span class="item-cat">{{ catalog.categoryById.get(item.direct_category_id ?? '')?.name ?? 'Uncategorized' }}</span>
@@ -262,7 +263,7 @@ watch(
             <span v-if="item.brand || item.model" class="item-brand">{{ item.brand }} {{ item.model }}</span>
 
             <div v-if="isLocked(item)" class="lock-note">
-              🔒 Requires {{ item.min_tier }} tier or higher
+              <IconBase name="lock" :size="12" /> Requires {{ item.min_tier }} tier or higher
             </div>
 
             <div class="item-meta-row">
@@ -282,7 +283,7 @@ watch(
     <!-- ============ ITEM DETAIL DRAWER ============ -->
     <div v-if="activeItem" class="drawer-backdrop" @click.self="closeDrawer">
       <div class="drawer">
-        <div class="drawer-thumb">🎥</div>
+        <div class="drawer-thumb"><IconBase name="camera" :size="44" /></div>
         <div>
           <span class="item-cat">{{
             catalog.categoryById.get(activeItem.direct_category_id ?? '')?.name ?? 'Uncategorized'
@@ -313,7 +314,7 @@ watch(
         </div>
 
         <div v-if="isLocked(activeItem)" class="lock-note">
-          🔒 This item requires {{ activeItem.min_tier }} tier or higher. Your current tier is
+          <IconBase name="lock" :size="12" /> This item requires {{ activeItem.min_tier }} tier or higher. Your current tier is
           {{ studentTier }}.
         </div>
 

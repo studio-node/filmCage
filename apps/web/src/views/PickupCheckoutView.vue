@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { conditionLabel, conditionRank, type UnitCondition } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
+import IconBase from '../components/icons/IconBase.vue'
 
 // Pickup checkout screen (migration 25's frontend half) -- "its own
 // pass," return/check-in is a later one. One shared page, exactly
@@ -393,7 +394,7 @@ function goBack() {
           {{ row.student?.full_name ?? 'Unknown' }} · {{ row.locations?.name ?? '—' }} · {{ scheduleLabel }}
         </p>
       </div>
-      <button class="btn ghost small" @click="goBack">← Back to Pickup</button>
+      <button class="btn ghost small" @click="goBack"><IconBase name="chevron-left" :size="14" /> Back to Pickup</button>
     </div>
 
     <p v-if="loading">Loading…</p>
@@ -434,7 +435,7 @@ function goBack() {
               @click="toggleLine(line)"
             >
               <div class="check-circle" :class="{ on: qtyFor(line.item_model_id) > 0 }">
-                <span v-if="qtyFor(line.item_model_id) > 0">✓</span>
+                <IconBase v-if="qtyFor(line.item_model_id) > 0" name="check" :size="13" />
               </div>
               <div style="flex: 1">
                 <div style="font-weight: 600">{{ line.item_models?.name ?? 'Unknown item' }} × {{ line.quantity }}</div>
@@ -484,7 +485,7 @@ function goBack() {
                 @click="toggleUnit(unit)"
               >
                 <div class="check-circle" :class="{ on: selected[unit.unit_id] }">
-                  <span v-if="selected[unit.unit_id]">✓</span>
+                  <IconBase v-if="selected[unit.unit_id]" name="check" :size="13" />
                 </div>
                 <div style="flex: 1">{{ unit.unit_code }}</div>
               </div>

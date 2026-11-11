@@ -1,32 +1,34 @@
 /* ============================================================
    DESIGN TOKENS
-   Ported from the approved Loadout mockup (v5). Colors, type
-   scale, radii and shadows live here so every component file
-   reads from the same source of truth.
+   Palette: Suzanne's approved brand colors (11/11) — teal
+   accent on a cool, blue-gray neutral scale. Light mode reads
+   "clean, bright, professional"; dark mode "cinematic, refined,
+   low glare." The six named colors (canvas/surface/border/
+   text/muted/accent) are the brand spec itself; every other
+   token in this file is mechanically derived from them so the
+   whole app stays internally consistent if the brand colors
+   ever change again.
 
-   One addition beyond the mockup: a --muted tone, used for the
-   real schema's `missing` unit condition. The mockup only had
-   three condition states (good/warn/crit); our schema has four
-   (good/caution/damaged/missing), so `missing` gets its own
-   quieter gray tone rather than being folded into crit/red,
-   since "we don't know where it is" reads differently from
-   "it's broken."
+   Status colors (good/warn/crit) and the violet "Capstone"
+   accent are intentionally untouched by the rebrand — they're
+   semantic, not part of the brand palette, and were already
+   validated for contrast against a similar neutral scale.
    ============================================================ */
 :root {
-  --bg: #EEF0EE;
-  --bg-alt: #E4E8E5;
+  --bg: #F7F9FA;
+  --bg-alt: #ECF1F3;
   --surface: #FFFFFF;
-  --surface-2: #F6F8F6;
-  --border: #D7DCD8;
-  --border-strong: #C1C8C3;
-  --ink: #161A1B;
-  --ink-2: #4B5459;
-  --ink-3: #7C858B;
-  --accent: #2955D6;
-  --accent-strong: #1E3FAE;
+  --surface-2: #F6F7F8;
+  --border: #E3E8EC;
+  --border-strong: #CAD3DB;
+  --ink: #182630;
+  --ink-2: #526674;
+  --ink-3: #8597A4;
+  --accent: #087F8C;
+  --accent-strong: #06616B;
   --accent-ink: #FFFFFF;
-  --accent-soft: #E7EDFC;
-  --accent-soft-border: #C7D5F8;
+  --accent-soft: #E7F3F4;
+  --accent-soft-border: #C7E2E5;
   --violet: #6E4FCE;
   --violet-soft: #EEE9FA;
   --good: #1E8E5A;
@@ -38,11 +40,11 @@
   --crit: #C1362B;
   --crit-soft: #FBE7E4;
   --crit-border: #F1C3BC;
-  --muted: #62696C;
-  --muted-soft: #E9EBEA;
-  --muted-border: #D2D7D5;
-  --shadow: 0 1px 2px rgba(20, 24, 22, 0.06), 0 8px 24px -12px rgba(20, 24, 22, 0.16);
-  --shadow-lg: 0 12px 32px -8px rgba(20, 24, 22, 0.28);
+  --muted: #687B88;
+  --muted-soft: #EAEDEE;
+  --muted-border: #D5DADE;
+  --shadow: 0 1px 2px rgba(16, 24, 32, 0.06), 0 8px 24px -12px rgba(16, 24, 32, 0.16);
+  --shadow-lg: 0 12px 32px -8px rgba(16, 24, 32, 0.28);
   --radius-s: 6px;
   --radius-m: 10px;
   --radius-l: 16px;
@@ -54,32 +56,32 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #14181A; --bg-alt: #1A1F21; --surface: #1D2224; --surface-2: #22282A;
-    --border: #2C3436; --border-strong: #3B4548;
-    --ink: #EEF1F0; --ink-2: #B7C0C1; --ink-3: #828C8E;
-    --accent: #6E93F5; --accent-strong: #8FADF8; --accent-ink: #0B1220;
-    --accent-soft: #212D4C; --accent-soft-border: #33447A;
+    --bg: #101820; --bg-alt: #151E28; --surface: #1B2731; --surface-2: #1F2D38;
+    --border: #344450; --border-strong: #415564;
+    --ink: #F2F5F6; --ink-2: #A3B2BD; --ink-3: #6B7F8D;
+    --accent: #36B6BE; --accent-strong: #69C9CF; --accent-ink: #0A1C20;
+    --accent-soft: #10383A; --accent-soft-border: #1A565A;
     --violet: #A78EEB; --violet-soft: #2C2545;
     --good: #4FC084; --good-soft: #173627; --good-border: #215239;
     --warn: #E0A83F; --warn-soft: #3B2E14; --warn-border: #5A431C;
     --crit: #E97B72; --crit-soft: #3D211E; --crit-border: #5C2F2A;
-    --muted: #9AA3A6; --muted-soft: #262B2D; --muted-border: #384042;
+    --muted: #8497A4; --muted-soft: #22272B; --muted-border: #333A3F;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #14181A; --bg-alt: #1A1F21; --surface: #1D2224; --surface-2: #22282A;
-  --border: #2C3436; --border-strong: #3B4548;
-  --ink: #EEF1F0; --ink-2: #B7C0C1; --ink-3: #828C8E;
-  --accent: #6E93F5; --accent-strong: #8FADF8; --accent-ink: #0B1220;
-  --accent-soft: #212D4C; --accent-soft-border: #33447A;
+  --bg: #101820; --bg-alt: #151E28; --surface: #1B2731; --surface-2: #1F2D38;
+  --border: #344450; --border-strong: #415564;
+  --ink: #F2F5F6; --ink-2: #A3B2BD; --ink-3: #6B7F8D;
+  --accent: #36B6BE; --accent-strong: #69C9CF; --accent-ink: #0A1C20;
+  --accent-soft: #10383A; --accent-soft-border: #1A565A;
   --violet: #A78EEB; --violet-soft: #2C2545;
   --good: #4FC084; --good-soft: #173627; --good-border: #215239;
   --warn: #E0A83F; --warn-soft: #3B2E14; --warn-border: #5A431C;
   --crit: #E97B72; --crit-soft: #3D211E; --crit-border: #5C2F2A;
-  --muted: #9AA3A6; --muted-soft: #262B2D; --muted-border: #384042;
+  --muted: #8497A4; --muted-soft: #22272B; --muted-border: #333A3F;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
 }

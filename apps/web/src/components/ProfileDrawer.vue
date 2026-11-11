@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../lib/errors'
+import IconBase from './icons/IconBase.vue'
 
 interface CourseOption {
   id: string
@@ -185,7 +186,7 @@ async function savePassword() {
     <div class="drawer">
       <div style="display: flex; align-items: center; justify-content: space-between">
         <h2 style="font-size: 19px">Your profile</h2>
-        <button class="icon-btn" aria-label="Close" @click="emit('close')">✕</button>
+        <button class="icon-btn" aria-label="Close" @click="emit('close')"><IconBase name="close" :size="14" /></button>
       </div>
 
       <p v-if="loading">Loading…</p>

@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore, type CatalogItem } from '../stores/catalog'
 import { errorMessage } from '../lib/errors'
+import IconBase from '../components/icons/IconBase.vue'
 
 // Mirrors reservations_approval_guard()'s threshold exactly (see the
 // reservations migration) — informational only on this side; the
@@ -1041,7 +1042,7 @@ async function submitReservation() {
                   <option value="" disabled>Select a person…</option>
                   <option v-for="opt in assigneeOptions" :key="opt.id" :value="opt.id">{{ opt.full_name }}</option>
                 </select>
-                <button class="icon-btn" style="width: 24px; height: 24px" @click="removeSplitRow(line.itemModelId, row.id)">✕</button>
+                <button class="icon-btn" style="width: 24px; height: 24px" @click="removeSplitRow(line.itemModelId, row.id)"><IconBase name="close" :size="12" /></button>
               </div>
               <button
                 class="btn ghost small"
@@ -1109,7 +1110,7 @@ async function submitReservation() {
             <select v-model="row.role" style="width: 150px">
               <option v-for="r in CREW_ROLES" :key="r">{{ r }}</option>
             </select>
-            <button class="icon-btn" style="width: 26px; height: 26px" @click="removeCrewMember(row.tempId)">✕</button>
+            <button class="icon-btn" style="width: 26px; height: 26px" @click="removeCrewMember(row.tempId)"><IconBase name="close" :size="13" /></button>
           </div>
         </div>
 
