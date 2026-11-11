@@ -51,7 +51,7 @@ interface ClaimedUnit {
   checked_out_by: string
   checkout_session_id: string | null
   checked_out_at: string | null
-  item_units: { unit_code: string; condition: UnitCondition } | null
+  item_units: { unit_code: string; condition: UnitCondition; item_models: { name: string } | null } | null
   claimer: { full_name: string | null } | null
 }
 interface SessionRow {
@@ -106,7 +106,7 @@ const RESERVATION_FIELDS = `id, reservation_name, student_id, status, is_group_r
   reservation_items(item_model_id, quantity, item_models(name)),
   reservation_crew(user_id, crew_role, is_producer, pickup_time_override, users!reservation_crew_user_id_fkey(full_name)),
   reservation_units(unit_id, item_model_id, checked_out_by, checkout_session_id, checked_out_at,
-    item_units(unit_code, condition),
+    item_units(unit_code, condition, item_models(name)),
     claimer:users!reservation_units_checked_out_by_fkey(full_name)),
   checkout_sessions(id, phase, person_user_id, person_signature, person_confirmed_at, staff_user_id, staff_signature, staff_confirmed_at,
     person:users!checkout_sessions_person_user_id_fkey(full_name),
@@ -324,6 +324,27 @@ const CONDITIONS: UnitCondition[] = ['good', 'caution', 'damaged', 'missing']
 function unitsForSession(sessionId: string) {
   return row.value?.reservation_units.filter((u) => u.checkout_session_id === sessionId) ?? []
 }
+// Item name for a claimed unit: from the unit's own model, falling back to the reservation line.
+function unitItemName(u: ClaimedUnit) {
+  return (
+    u.item_units?.item_models?.name ??
+    row.value?.reservation_items.find((l) => l.item_model_id === u.item_model_id)?.item_models?.name ??
+    'Unknown item'
+  )
+}
+// A session's claimed units grouped under their item, so staff see "Canon C70 × 2" with each unit below.
+function unitGroupsForSession(sessionId: string) {
+  const groups = new Map<string, { itemModelId: string; name: string; units: ClaimedUnit[] }>()
+  for (const u of unitsForSession(sessionId)) {
+    let g = groups.get(u.item_model_id)
+    if (!g) {
+      g = { itemModelId: u.item_model_id, name: unitItemName(u), units: [] }
+      groups.set(u.item_model_id, g)
+    }
+    g.units.push(u)
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
 function draftFor(unit: ClaimedUnit) {
   if (!conditionDrafts[unit.unit_id]) {
     conditionDrafts[unit.unit_id] = { condition: unit.item_units?.condition ?? 'good', note: '' }
@@ -411,7 +432,8 @@ function goBack() {
             You've completed your pickup — waiting on staff to confirm.
           </div>
           <div v-for="u in myClaimedUnits" :key="u.unit_id" class="unit-line">
-            <span style="font-weight: 600">{{ u.item_units?.unit_code ?? 'Unit' }}</span>
+            <span style="font-weight: 600">{{ unitItemName(u) }}</span>
+            <span class="field-hint">Unit #{{ u.item_units?.unit_code ?? '?' }}</span>
           </div>
         </div>
 
@@ -513,8 +535,10 @@ function goBack() {
             <span class="field-hint">signed: {{ session.person_signature }}</span>
           </div>
 
-          <div v-for="u in unitsForSession(session.id)" :key="u.unit_id" class="unit-line" style="flex-direction: column; align-items: flex-start; gap: 6px">
-            <div style="font-weight: 600">{{ u.item_units?.unit_code ?? 'Unit' }}</div>
+          <div v-for="g in unitGroupsForSession(session.id)" :key="g.itemModelId">
+          <div style="font-weight: 700; font-size: 13.5px">{{ g.name }} <span class="field-hint">× {{ g.units.length }}</span></div>
+          <div v-for="u in g.units" :key="u.unit_id" class="unit-line" style="flex-direction: column; align-items: flex-start; gap: 6px">
+            <div style="font-weight: 600">Unit #{{ u.item_units?.unit_code ?? '?' }}</div>
             <div class="cond-pill-row">
               <button
                 v-for="c in CONDITIONS"
@@ -533,6 +557,7 @@ function goBack() {
               placeholder="Required note for a condition downgrade"
               style="width: 100%"
             ></textarea>
+          </div>
           </div>
 
           <div class="field">
