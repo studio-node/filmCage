@@ -658,7 +658,7 @@ async function saveAll() {
                above instead, same as a unit's Retire vs Delete split
                below. -->
           <div v-if="!modelDeleteConfirm">
-            <button class="btn ghost small" @click="startModelDelete">Delete this item…</button>
+            <button class="btn danger small" @click="startModelDelete">Delete this item…</button>
           </div>
           <div v-else class="field-hint">
             <p v-if="modelDeleteChecking">Checking for attached history…</p>
@@ -669,7 +669,7 @@ async function saveAll() {
             <template v-else>
               Permanently delete "{{ activeItem?.name }}"? This can't be undone.
               <div style="display: flex; gap: 8px; margin-top: 6px">
-                <button class="btn primary small" :disabled="modelDeleteBusy" @click="confirmModelDelete">
+                <button class="btn danger small" :disabled="modelDeleteBusy" @click="confirmModelDelete">
                   Yes, delete it
                 </button>
                 <button class="btn ghost small" @click="cancelModelDeletePrompt">Never mind</button>
@@ -789,7 +789,7 @@ async function saveAll() {
                  locally. -->
             <template v-if="activeUnit.id">
               <div v-if="unitDeleteConfirmId !== activeUnit.id">
-                <button class="btn ghost small" @click="startUnitDelete(activeUnit.id)">Delete this unit…</button>
+                <button class="btn danger small" @click="startUnitDelete(activeUnit.id)">Delete this unit…</button>
               </div>
               <div v-else class="field-hint">
                 <p v-if="unitDeleteBlocked[activeUnit.id] === undefined">Checking for attached history…</p>
@@ -801,7 +801,7 @@ async function saveAll() {
                   Permanently delete unit #{{ activeUnit.unit_code || '?' }}? This can't be undone.
                   <div style="display: flex; gap: 8px; margin-top: 6px">
                     <button
-                      class="btn primary small"
+                      class="btn danger small"
                       :disabled="unitDeleteBusy[activeUnit.id]"
                       @click="confirmUnitDelete(activeUnit.id, activeUnitIndex as number)"
                     >

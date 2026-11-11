@@ -68,8 +68,9 @@
 .btn:hover { background: var(--surface-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
-.btn.danger { background: var(--surface); border-color: var(--crit-border); color: var(--crit); }
-.btn.danger:hover { background: var(--crit-soft); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--danger-ink); }
+.btn.danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
+.btn.danger:disabled:hover { background: var(--danger); }
 .btn.ghost { border-color: transparent; background: none; }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.small { padding: 5px 10px; font-size: 12px; border-radius: 7px; }

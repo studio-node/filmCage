@@ -911,7 +911,7 @@ async function doDelete() {
           <button v-if="canCancel && !confirmingCancel" class="btn ghost small" :disabled="busy" @click="confirmingCancel = true">
             Cancel reservation
           </button>
-          <button v-if="canDelete && !confirmingDelete" class="btn ghost small" :disabled="busy" @click="openDeletePrompt">Delete…</button>
+          <button v-if="canDelete && !confirmingDelete" class="btn danger small" :disabled="busy" @click="openDeletePrompt">Delete…</button>
           <button v-if="canReturnEarly && !confirmingReturn" class="btn ghost small" :disabled="busy" @click="confirmingReturn = true">
             Return equipment early
           </button>
@@ -942,7 +942,7 @@ async function doDelete() {
           <template v-else-if="deleteBlockers">
             Permanently delete this reservation? This can't be undone.
             <div style="display: flex; gap: 8px; margin-top: 6px">
-              <button class="btn primary small" :disabled="busy" @click="doDelete">Yes, delete it</button>
+              <button class="btn danger small" :disabled="busy" @click="doDelete">Yes, delete it</button>
               <button class="btn ghost small" @click="confirmingDelete = false">Never mind</button>
             </div>
           </template>

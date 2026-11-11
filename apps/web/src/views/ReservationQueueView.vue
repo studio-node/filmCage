@@ -484,7 +484,7 @@ function canEditRow(r: ReservationRow) {
               >
                 Cancel reservation
               </button>
-              <button v-if="!isLocked(r) && confirmingDeleteId !== r.id" class="btn ghost small" :disabled="busy[r.id]" @click="startDelete(r)">
+              <button v-if="!isLocked(r) && confirmingDeleteId !== r.id" class="btn danger small" :disabled="busy[r.id]" @click="startDelete(r)">
                 Delete…
               </button>
             </div>
@@ -506,7 +506,7 @@ function canEditRow(r: ReservationRow) {
               <template v-else>
                 Permanently delete this reservation? This can't be undone.
                 <div style="display: flex; gap: 8px; margin-top: 6px">
-                  <button class="btn primary small" :disabled="busy[r.id]" @click="confirmDelete(r)">Yes, delete it</button>
+                  <button class="btn danger small" :disabled="busy[r.id]" @click="confirmDelete(r)">Yes, delete it</button>
                   <button class="btn ghost small" @click="cancelDeletePrompt">Never mind</button>
                 </div>
               </template>
