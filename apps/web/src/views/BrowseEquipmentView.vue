@@ -255,7 +255,8 @@ watch(
           @click="openDrawer(item)"
         >
           <div class="item-thumb">
-            <IconBase name="camera" :size="26" class="glyph" />
+            <img v-if="item.picture_url" :src="item.picture_url" :alt="item.name" class="item-thumb-img" />
+            <IconBase v-else name="camera" :size="26" class="glyph" />
           </div>
           <div class="item-body">
             <span class="item-cat">{{ catalog.categoryById.get(item.direct_category_id ?? '')?.name ?? 'Uncategorized' }}</span>
@@ -283,7 +284,10 @@ watch(
     <!-- ============ ITEM DETAIL DRAWER ============ -->
     <div v-if="activeItem" class="drawer-backdrop" @click.self="closeDrawer">
       <div class="drawer">
-        <div class="drawer-thumb"><IconBase name="camera" :size="44" /></div>
+        <div class="drawer-thumb">
+          <img v-if="activeItem.picture_url" :src="activeItem.picture_url" :alt="activeItem.name" class="drawer-thumb-img" />
+          <IconBase v-else name="camera" :size="44" />
+        </div>
         <div>
           <span class="item-cat">{{
             catalog.categoryById.get(activeItem.direct_category_id ?? '')?.name ?? 'Uncategorized'

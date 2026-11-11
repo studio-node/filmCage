@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { toneForCondition, conditionLabel, conditionRank, type UnitCondition, toneForUnitStatus, unitStatusLabel, type UnitStatus } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
 import { useCatalogStore } from '../stores/catalog'
+import { uploadItemPhoto, validatePhotoFile, deleteItemPhoto } from '../lib/itemPhotos'
 import IconBase from '../components/icons/IconBase.vue'
 
 interface Category {
@@ -22,6 +23,7 @@ interface ItemModel {
   model: string | null
   description: string | null
   purchase_price: number | null
+  picture_url: string | null
   location_id: string
   direct_category_id: string | null
   general_category_id: string | null
@@ -68,7 +70,7 @@ async function loadAll() {
     supabase
       .from('item_models')
       .select(
-        'id, name, brand, model, description, purchase_price, location_id, direct_category_id, general_category_id, min_tier, is_active'
+        'id, name, brand, model, description, purchase_price, picture_url, location_id, direct_category_id, general_category_id, min_tier, is_active'
       )
       .order('name'),
   ])
@@ -96,6 +98,53 @@ const activeItem = ref<ItemModel | null>(null)
 const editForm = ref<Partial<ItemModel>>({})
 const units = ref<UnitRow[]>([])
 const unitsLoading = ref(false)
+
+// Snapshot of picture_url as it actually is in the database right
+// now (set in openEdit, updated again once a save actually commits).
+// A replace/remove only changes editForm.picture_url locally -- the
+// real old file in storage isn't deleted until Save succeeds, so
+// closing the drawer without saving leaves the original untouched.
+const originalPictureUrl = ref<string | null>(null)
+const photoUploading = ref(false)
+const photoError = ref('')
+
+async function onPhotoChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  if (!file || !activeItem.value) return
+  photoError.value = ''
+  const problem = validatePhotoFile(file)
+  if (problem) {
+    photoError.value = problem
+    input.value = ''
+    return
+  }
+  photoUploading.value = true
+  try {
+    const newUrl = await uploadItemPhoto(file, activeItem.value.id)
+    // If this replaces an upload from earlier in this same edit
+    // session (not yet saved, so nothing else can be pointing at it),
+    // clean that one up right away -- it's already an orphan.
+    if (editForm.value.picture_url && editForm.value.picture_url !== originalPictureUrl.value) {
+      deleteItemPhoto(editForm.value.picture_url)
+    }
+    editForm.value.picture_url = newUrl
+  } catch (e) {
+    photoError.value = errorMessage(e, 'Could not upload that photo.')
+  } finally {
+    photoUploading.value = false
+    input.value = ''
+  }
+}
+function removePhoto() {
+  // Same orphan-cleanup split as above: only delete immediately if
+  // what's being cleared was itself an unsaved replacement from this
+  // session. The real saved original (if any) waits for Save.
+  if (editForm.value.picture_url && editForm.value.picture_url !== originalPictureUrl.value) {
+    deleteItemPhoto(editForm.value.picture_url)
+  }
+  editForm.value.picture_url = null
+}
 
 // Which unit (by index into `units`) is expanded into its own card,
 // or null to show the compact per-unit list instead. A unit's own
@@ -217,6 +266,7 @@ async function confirmModelDelete() {
   try {
     const { error: delErr } = await supabase.from('item_models').delete().eq('id', activeItem.value.id)
     if (delErr) throw delErr
+    deleteItemPhoto(activeItem.value.picture_url) // best-effort -- the row's gone, the file would just be an orphan
     const idx = items.value.findIndex((i) => i.id === activeItem.value!.id)
     if (idx !== -1) items.value.splice(idx, 1)
     closeEdit()
@@ -251,6 +301,8 @@ async function openEdit(item: ItemModel) {
   const requestId = ++editRequestId
   activeItem.value = item
   editForm.value = { ...item }
+  originalPictureUrl.value = item.picture_url
+  photoError.value = ''
   saveError.value = ''
   saveSuccess.value = false
   activeUnitIndex.value = null
@@ -391,6 +443,7 @@ async function saveAll() {
         model: editForm.value.model?.trim() || null,
         description: editForm.value.description?.trim() || null,
         purchase_price: editForm.value.purchase_price ?? null,
+        picture_url: editForm.value.picture_url ?? null,
         location_id: editForm.value.location_id,
         direct_category_id: editForm.value.direct_category_id || null,
         general_category_id: editForm.value.general_category_id || null,
@@ -430,6 +483,16 @@ async function saveAll() {
     // Reflect the model change in the list without a full reload.
     const idx = items.value.findIndex((i) => i.id === activeItem.value!.id)
     if (idx !== -1) items.value[idx] = { ...items.value[idx], ...editForm.value } as ItemModel
+
+    // The model update above just committed successfully, so if the
+    // photo actually changed (replaced or removed), the *old* file in
+    // storage is a real orphan now -- clean it up, best-effort, and
+    // move the baseline forward so a later save in this same drawer
+    // session doesn't try to delete it again.
+    if (originalPictureUrl.value && originalPictureUrl.value !== editForm.value.picture_url) {
+      deleteItemPhoto(originalPictureUrl.value)
+    }
+    originalPictureUrl.value = editForm.value.picture_url ?? null
 
     saveSuccess.value = true
     // Edits here change what the catalog store has cached, which now
@@ -527,6 +590,29 @@ async function saveAll() {
           <div class="field">
             <label>Description</label>
             <textarea v-model="editForm.description" rows="3"></textarea>
+          </div>
+          <div class="field">
+            <label>Photo</label>
+            <div class="photo-picker">
+              <div class="photo-preview">
+                <img v-if="editForm.picture_url" :src="editForm.picture_url" alt="" />
+                <IconBase v-else name="camera" :size="22" />
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" :disabled="photoUploading" @change="onPhotoChange" />
+                <span v-if="photoUploading" style="font-size: 12px; color: var(--ink-3)">Uploading…</span>
+                <button
+                  v-else-if="editForm.picture_url"
+                  type="button"
+                  class="btn ghost small"
+                  style="align-self: flex-start"
+                  @click="removePhoto"
+                >
+                  Remove photo
+                </button>
+              </div>
+            </div>
+            <p v-if="photoError" class="error-note" style="margin-top: 4px">{{ photoError }}</p>
           </div>
           <div class="field-row">
             <div class="field">

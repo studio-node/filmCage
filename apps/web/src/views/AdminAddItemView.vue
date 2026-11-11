@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errors'
 import { useCatalogStore } from '../stores/catalog'
+import { uploadItemPhoto, validatePhotoFile } from '../lib/itemPhotos'
+import IconBase from '../components/icons/IconBase.vue'
 
 interface Category {
   id: string
@@ -46,6 +48,36 @@ const generalCategoryId = ref('')
 const minTier = ref<'beginner' | 'intermediate' | 'advanced'>('beginner')
 const quantity = ref(1)
 
+// Photo is uploaded at submit time, once the new item model's id
+// exists to scope the storage path -- until then it's just a local
+// File plus an object-URL preview, nothing touches the network.
+const photoFile = ref<File | null>(null)
+const photoPreviewUrl = ref<string | null>(null)
+const photoError = ref('')
+
+function clearPhotoPreview() {
+  if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
+  photoPreviewUrl.value = null
+  photoFile.value = null
+}
+function onPhotoChange(e: Event) {
+  photoError.value = ''
+  const file = (e.target as HTMLInputElement).files?.[0] ?? null
+  if (!file) return
+  const problem = validatePhotoFile(file)
+  if (problem) {
+    photoError.value = problem
+    ;(e.target as HTMLInputElement).value = ''
+    return
+  }
+  clearPhotoPreview()
+  photoFile.value = file
+  photoPreviewUrl.value = URL.createObjectURL(file)
+}
+onBeforeUnmount(() => {
+  if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
+})
+
 const submitting = ref(false)
 const error = ref('')
 const successMessage = ref('')
@@ -72,6 +104,8 @@ function resetForm() {
   generalCategoryId.value = ''
   minTier.value = 'beginner'
   quantity.value = 1
+  clearPhotoPreview()
+  photoError.value = ''
 }
 
 async function handleSubmit() {
@@ -128,9 +162,27 @@ async function handleSubmit() {
       .order('unit_code')
     if (unitsErr) throw unitsErr
 
+    let photoNote = ''
+    if (photoFile.value) {
+      try {
+        const publicUrl = await uploadItemPhoto(photoFile.value, newModel.id)
+        const { error: photoErr } = await supabase
+          .from('item_models')
+          .update({ picture_url: publicUrl })
+          .eq('id', newModel.id)
+        if (photoErr) throw photoErr
+      } catch (e) {
+        // The item itself is already created and usable — a photo
+        // upload failure shouldn't undo that. Surface it separately so
+        // it's clear the photo didn't make it, with a way to add one
+        // later from Edit Items.
+        photoNote = ` (photo didn't upload: ${errorMessage(e, 'unknown error')} — add it later from Edit Items)`
+      }
+    }
+
     successMessage.value = `Added "${name.value.trim()}" with ${quantity.value} unit${
       quantity.value === 1 ? '' : 's'
-    } (labeled 1–${quantity.value}).`
+    } (labeled 1–${quantity.value}).${photoNote}`
     createdUnits.value = (newUnits ?? []).map((u) => ({ id: u.id, unit_code: u.unit_code, qr_code: '', serial_number: '' }))
     resetForm()
     // New item models change what the catalog store has cached, which
@@ -210,6 +262,24 @@ async function saveUnitDetails() {
       <div class="field">
         <label>Description</label>
         <textarea v-model="description" rows="3" placeholder="Optional notes shown in Browse Equipment"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Photo</label>
+        <div class="photo-picker">
+          <div class="photo-preview">
+            <img v-if="photoPreviewUrl" :src="photoPreviewUrl" alt="" />
+            <IconBase v-else name="camera" :size="22" />
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="onPhotoChange" />
+            <button v-if="photoPreviewUrl" type="button" class="btn ghost small" style="align-self: flex-start" @click="clearPhotoPreview">
+              Remove photo
+            </button>
+          </div>
+        </div>
+        <p class="field-hint">Shown on the Browse Equipment card. Optional — you can add one later from Edit Items.</p>
+        <p v-if="photoError" class="error-note" style="margin-top: 4px">{{ photoError }}</p>
       </div>
 
       <div class="field-row">

@@ -19,6 +19,7 @@ export interface CatalogItem {
   model: string | null
   description: string | null
   purchase_price: number | null
+  picture_url: string | null
   location_id: string
   direct_category_id: string | null
   general_category_id: string | null
@@ -74,7 +75,7 @@ export const useCatalogStore = defineStore('catalog', {
           supabase
             .from('item_models')
             .select(
-              'id, name, brand, model, description, purchase_price, location_id, direct_category_id, general_category_id, min_tier'
+              'id, name, brand, model, description, purchase_price, picture_url, location_id, direct_category_id, general_category_id, min_tier'
             )
             .eq('is_active', true)
             .order('name'),
