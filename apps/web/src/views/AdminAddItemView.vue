@@ -227,18 +227,11 @@ async function saveUnitDetails() {
 </script>
 
 <template>
-  <div class="view">
-    <div class="view-head">
-      <div>
-        <span class="view-eyebrow">Inventory</span>
-        <h1>Add Items</h1>
-        <p class="view-desc">
-          Add a new piece of equipment to the catalog. Units are created and numbered
-          automatically from the quantity you enter.
-        </p>
-      </div>
-    </div>
-
+  <!-- No .view-head here -- this component is now rendered as the "Add
+  Item" tab of InventoryManagementView.vue, which owns the page title.
+  .view-body keeps the same vertical rhythm as .view without doubling
+  up the max-width/centering. -->
+  <div class="view-body">
     <p v-if="loadingOptions">Loading categories and locations…</p>
     <p v-else-if="optionsError" class="error-note">Couldn't load form options: {{ optionsError }}</p>
 

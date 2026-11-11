@@ -15,24 +15,33 @@ interface NavItem {
   routeName: string | null // null = not built yet
   roles: Array<'student' | 'staff' | 'supervisor' | 'admin' | 'class_instructor'>
   icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'chart' | 'shield'
+  // Two sidebar sections (11/11, later ask): 'self' is checkout/
+  // reservations for yourself, open to everyone; 'staff' is
+  // management tooling, staff+ only. A student only ever sees the
+  // 'self' group, so the section label + divider only ever shows up
+  // for staff+ -- there's nothing to separate otherwise.
+  group: 'self' | 'staff'
 }
 
 const ALL_ROLES: NavItem['roles'] = ['student', 'staff', 'supervisor', 'admin', 'class_instructor']
+const STAFF_PLUS_ROLES: NavItem['roles'] = ['staff', 'supervisor', 'admin']
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', routeName: 'dashboard', roles: ALL_ROLES, icon: 'grid' },
-  { key: 'browse', label: 'Browse Equipment', routeName: 'browse', roles: ALL_ROLES, icon: 'box' },
-  { key: 'calendar', label: 'New Reservation', routeName: 'new-reservation', roles: ALL_ROLES, icon: 'calendar' },
-  { key: 'reservations', label: 'My Reservations', routeName: 'reservations', roles: ALL_ROLES, icon: 'list' },
-  { key: 'reservation-queue', label: 'Reservation Queue', routeName: 'reservation-queue', roles: ['staff', 'supervisor', 'admin'], icon: 'inbox' },
-  // Everyone gets this one now -- pickup is a student/crew action
-  // first, mirrored by staff on the same screen, not a staff-only
-  // tool. (Still labeled "Pickup / Return" even though only pickup is
-  // built so far -- return is the next pass, same nav slot.)
-  { key: 'pickup', label: 'Pickup / Return', routeName: 'pickup', roles: ALL_ROLES, icon: 'truck' },
-  { key: 'analytics', label: 'Analytics', routeName: null, roles: ['staff', 'supervisor', 'admin'], icon: 'chart' },
-  { key: 'admin', label: 'Add Items', routeName: 'admin', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
-  { key: 'admin-edit', label: 'Edit Items', routeName: 'admin-edit', roles: ['staff', 'supervisor', 'admin'], icon: 'shield' },
+  { key: 'dashboard', label: 'Dashboard', routeName: 'dashboard', roles: ALL_ROLES, icon: 'grid', group: 'self' },
+  { key: 'browse', label: 'Browse Equipment', routeName: 'browse', roles: ALL_ROLES, icon: 'box', group: 'self' },
+  { key: 'calendar', label: 'New Reservation', routeName: 'new-reservation', roles: ALL_ROLES, icon: 'calendar', group: 'self' },
+  { key: 'reservations', label: 'My Reservations', routeName: 'reservations', roles: ALL_ROLES, icon: 'list', group: 'self' },
+  // Everyone gets this one -- pickup is a student/crew action first,
+  // mirrored by staff on the same screen, not a staff-only tool.
+  // (Still labeled "Pickup / Return" even though only pickup is built
+  // so far -- return is the next pass, same nav slot.)
+  { key: 'pickup', label: 'Pickup / Return', routeName: 'pickup', roles: ALL_ROLES, icon: 'truck', group: 'self' },
+  { key: 'reservation-queue', label: 'Reservation Queue', routeName: 'reservation-queue', roles: STAFF_PLUS_ROLES, icon: 'inbox', group: 'staff' },
+  { key: 'analytics', label: 'Analytics', routeName: null, roles: STAFF_PLUS_ROLES, icon: 'chart', group: 'staff' },
+  // Add Items and Edit Items merged into one page, two tabs (see
+  // InventoryManagementView.vue) -- was two near-duplicate nav
+  // entries for what's really one job.
+  { key: 'inventory', label: 'Inventory Management', routeName: 'inventory', roles: STAFF_PLUS_ROLES, icon: 'shield', group: 'staff' },
 ]
 
 const auth = useAuthStore()
@@ -45,6 +54,8 @@ const profileOpen = ref(false)
 const visibleNav = computed(() =>
   NAV_ITEMS.filter((item) => !auth.role || item.roles.includes(auth.role))
 )
+const selfNav = computed(() => visibleNav.value.filter((item) => item.group === 'self'))
+const staffNav = computed(() => visibleNav.value.filter((item) => item.group === 'staff'))
 
 const initials = computed(() => {
   const name = auth.fullName || auth.user?.email || ''
@@ -222,7 +233,7 @@ function confirmHighlighted() {
         <nav class="nav-group">
           <div class="nav-group-label">Menu</div>
           <router-link
-            v-for="item in visibleNav"
+            v-for="item in selfNav"
             :key="item.key"
             :to="item.routeName ? { name: item.routeName } : '#'"
             class="nav-item"
@@ -234,6 +245,30 @@ function confirmHighlighted() {
             <span v-if="!item.routeName" class="badge-mini">soon</span>
           </router-link>
         </nav>
+
+        <!-- Staff+ management tools, visually separated from the
+        checkout/reservation menu above -- only ever rendered for a
+        staff+ viewer, since selfNav already covers everything a
+        student can see. -->
+        <template v-if="staffNav.length">
+          <hr class="nav-divider" />
+          <nav class="nav-group">
+            <div class="nav-group-label">Staff+ Tools</div>
+            <router-link
+              v-for="item in staffNav"
+              :key="item.key"
+              :to="item.routeName ? { name: item.routeName } : '#'"
+              class="nav-item"
+              :class="{ 'nav-item--disabled': !item.routeName }"
+              @click="!item.routeName && $event.preventDefault()"
+            >
+              <IconBase :name="item.icon" :size="17" />
+              <span>{{ item.label }}</span>
+              <span v-if="!item.routeName" class="badge-mini">soon</span>
+            </router-link>
+          </nav>
+        </template>
+
         <div class="sidebar-foot">
           The Film Cage — Utah Tech Film Dept equipment checkout.
         </div>

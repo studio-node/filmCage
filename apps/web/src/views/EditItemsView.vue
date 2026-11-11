@@ -514,18 +514,11 @@ async function saveAll() {
 </script>
 
 <template>
-  <div class="view">
-    <div class="view-head">
-      <div>
-        <span class="view-eyebrow">Inventory</span>
-        <h1>Edit Items</h1>
-        <p class="view-desc">
-          Update an existing item's details, or click into one of its units to manage condition,
-          QR code, and serial number.
-        </p>
-      </div>
-    </div>
-
+  <!-- No .view-head here -- this component is now rendered as the "Edit
+  Items" tab of InventoryManagementView.vue, which owns the page title.
+  .view-body keeps the same vertical rhythm as .view without doubling
+  up the max-width/centering. -->
+  <div class="view-body">
     <p v-if="loading">Loading catalog…</p>
     <p v-else-if="error" class="error-note">Couldn't load the catalog: {{ error }}</p>
 

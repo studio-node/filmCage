@@ -7,13 +7,12 @@ import NewReservationView from '../views/NewReservationView.vue'
 import MyReservationsView from '../views/MyReservationsView.vue'
 import ReservationQueueView from '../views/ReservationQueueView.vue'
 import ReservationDetailView from '../views/ReservationDetailView.vue'
-import AdminAddItemView from '../views/AdminAddItemView.vue'
-import EditItemsView from '../views/EditItemsView.vue'
+import InventoryManagementView from '../views/InventoryManagementView.vue'
 import PickupReturnView from '../views/PickupReturnView.vue'
 import PickupCheckoutView from '../views/PickupCheckoutView.vue'
 import { useAuthStore } from '../stores/auth'
 
-const INVENTORY_ROUTE_NAMES = new Set(['admin', 'admin-edit'])
+const INVENTORY_ROUTE_NAMES = new Set(['inventory'])
 const INVENTORY_ROLES = new Set(['staff', 'supervisor', 'admin'])
 const STAFF_ROUTE_NAMES = new Set(['reservation-queue'])
 const STAFF_ROLES = new Set(['staff', 'supervisor', 'admin'])
@@ -41,8 +40,15 @@ const router = createRouter({
         // the Reservation Queue above.
         { path: 'pickup', name: 'pickup', component: PickupReturnView },
         { path: 'pickup/:id', name: 'pickup-checkout', component: PickupCheckoutView },
-        { path: 'admin', name: 'admin', component: AdminAddItemView },
-        { path: 'admin/items', name: 'admin-edit', component: EditItemsView },
+        // Add Items and Edit Items are now one page, two tabs (see
+        // InventoryManagementView.vue) -- 11/11 (later) ask, so staff
+        // management tools live under a single nav entry instead of
+        // two near-duplicate ones. The old paths/names redirect here
+        // (query.tab picks the right tab) so an old bookmark or a
+        // stale link still lands somewhere sensible.
+        { path: 'inventory', name: 'inventory', component: InventoryManagementView },
+        { path: 'admin', name: 'admin', redirect: { name: 'inventory', query: { tab: 'add' } } },
+        { path: 'admin/items', name: 'admin-edit', redirect: { name: 'inventory', query: { tab: 'edit' } } },
       ],
     },
   ],
