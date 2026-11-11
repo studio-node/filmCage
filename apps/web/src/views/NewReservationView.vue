@@ -245,6 +245,12 @@ function minsToLabel(mins: number) {
   if (h12 === 0) h12 = 12
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
+// "HH:MM[:SS]" from the database -> "9:00 AM" for display
+function timeToLabel(t: string | null | undefined) {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  return minsToLabel(h * 60 + (m || 0))
+}
 function minsToHHMM(mins: number) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
 }
@@ -323,7 +329,7 @@ const approvalNote = computed(() => {
     return `This reservation is over ${APPROVAL_ITEM_THRESHOLD} items — it needs a staff member or admin to approve it before gear is assigned.`
   if (pickupNote.value || loanWindowNote.value)
     return 'One or more of your dates needs staff approval — see the notes above. The reservation is still submitted now and will be reviewed.'
-  return `At or under ${APPROVAL_ITEM_THRESHOLD} items and within the standard windows, this reservation is confirmed as soon as you submit.`
+  return `At or under ${APPROVAL_ITEM_THRESHOLD} items and within the standard checkout time windows, this reservation is confirmed as soon as you submit.`
 })
 
 // A real pickup/drop-off window is required before any item can be
@@ -1131,8 +1137,8 @@ async function submitReservation() {
             <span>{{ d }}</span>
             <span class="field-hint" style="text-transform: none">
               <template v-if="hours.find((h) => h.day_of_week === d)?.is_open">
-                {{ hours.find((h) => h.day_of_week === d)?.open_time?.slice(0, 5) }}–{{
-                  hours.find((h) => h.day_of_week === d)?.close_time?.slice(0, 5)
+                {{ timeToLabel(hours.find((h) => h.day_of_week === d)?.open_time) }} – {{
+                  timeToLabel(hours.find((h) => h.day_of_week === d)?.close_time)
                 }}
                 <span v-if="hours.find((h) => h.day_of_week === d)?.appointment_only"> (by appt)</span>
               </template>
