@@ -329,7 +329,7 @@ const approvalNote = computed(() => {
     return `This reservation is over ${APPROVAL_ITEM_THRESHOLD} items — it needs a staff member or admin to approve it before gear is assigned.`
   if (pickupNote.value || loanWindowNote.value)
     return 'One or more of your dates needs staff approval — see the notes above. The reservation is still submitted now and will be reviewed.'
-  return `At or under ${APPROVAL_ITEM_THRESHOLD} items and within the standard checkout time windows, this reservation is confirmed as soon as you submit.`
+  return `At or under ${APPROVAL_ITEM_THRESHOLD} items and within the standard checkout time windows, this reservation is confirmed as soon as you submit. Otherwise, it will require approval by Film Cage staff.`
 })
 
 // A real pickup/drop-off window is required before any item can be
