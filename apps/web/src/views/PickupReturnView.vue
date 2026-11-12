@@ -6,10 +6,9 @@ import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../lib/errors'
 
 // The "Pickup / Return" tab -- discoverable from the sidebar and
-// (separately) the Dashboard. Return/check-in isn't built yet (its
-// own later pass -- see the rules doc), so this pass only ever lists
-// reservations ready for PICKUP; the page is still named for both
-// since that's the nav slot it already occupies.
+// (separately) the Dashboard. Lists what the viewer can act on now
+// for both pickup and return (migration 31); clicking a pickup row
+// opens PickupCheckoutView, a return row opens ReturnCheckinView.
 //
 // Two sections, shown to whoever's actually relevant to them:
 //   - "Ready for you to pick up": the viewer's own (or crew) reservations
@@ -59,6 +58,90 @@ const loading = ref(true)
 const error = ref('')
 const myRows = ref<ReservationRow[]>([])
 const staffRows = ref<ReservationRow[]>([])
+
+// --- returns ---
+interface ReturnRow {
+  id: string
+  reservation_name: string
+  is_group_reservation: boolean
+  dropoff_date: string | null
+  locations: { name: string } | null
+  units: string[]
+  pending: boolean
+}
+interface StaffReturnRow {
+  id: string
+  reservation_name: string
+  is_group_reservation: boolean
+  dropoff_date: string | null
+  locations: { name: string } | null
+  checkout_sessions: { person_confirmed_at: string | null; staff_confirmed_at: string | null; person: { full_name: string | null } | null }[]
+}
+const myReturnRows = ref<ReturnRow[]>([])
+const staffReturnRows = ref<StaffReturnRow[]>([])
+const todayStr = (() => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+})()
+
+async function loadReturns() {
+  if (!auth.user) return
+  // Everything this viewer personally has checked out and hasn't had
+  // checked back in yet, grouped by reservation.
+  const { data, error: err } = await supabase
+    .from('reservation_units')
+    .select(
+      `unit_id, return_session_id,
+       item_units(unit_code, item_models(name)),
+       reservations(id, reservation_name, status, is_group_reservation, dropoff_date, locations(name))`
+    )
+    .eq('checked_out_by', auth.user.id)
+  if (err) throw err
+  const byRes = new Map<string, ReturnRow>()
+  for (const u of (data ?? []) as unknown as {
+    return_session_id: string | null
+    item_units: { unit_code: string; item_models: { name: string } | null } | null
+    reservations: { id: string; reservation_name: string; status: string; is_group_reservation: boolean; dropoff_date: string | null; locations: { name: string } | null } | null
+  }[]) {
+    const r = u.reservations
+    if (!r || r.status !== 'active') continue
+    if (!byRes.has(r.id)) byRes.set(r.id, { ...r, units: [], pending: false })
+    const entry = byRes.get(r.id)!
+    entry.units.push(u.item_units?.item_models?.name ?? 'Unknown item')
+    if (u.return_session_id) entry.pending = true
+  }
+  myReturnRows.value = [...byRes.values()].sort((a, b) => (a.dropoff_date ?? '').localeCompare(b.dropoff_date ?? ''))
+
+  if (isStaffPlus.value) {
+    const { data: sData, error: sErr } = await supabase
+      .from('reservations')
+      .select(
+        `id, reservation_name, is_group_reservation, dropoff_date, locations(name),
+         checkout_sessions(person_confirmed_at, staff_confirmed_at, person:users!checkout_sessions_person_user_id_fkey(full_name))`
+      )
+      .eq('status', 'active')
+      .eq('checkout_sessions.phase', 'return')
+      .not('checkout_sessions.person_confirmed_at', 'is', null)
+      .is('checkout_sessions.staff_confirmed_at', null)
+    if (sErr) throw sErr
+    staffReturnRows.value = ((sData ?? []) as unknown as StaffReturnRow[]).filter((r) => r.checkout_sessions.length > 0)
+  }
+}
+function returnSummary(r: ReturnRow) {
+  const counts = new Map<string, number>()
+  for (const n of r.units) counts.set(n, (counts.get(n) ?? 0) + 1)
+  return [...counts.entries()].map(([n, c]) => `${n} ×${c}`).join(', ')
+}
+function returnDueLabel(d: string | null) {
+  if (!d) return ''
+  const label = new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  if (d < todayStr) return `Overdue — was due ${label}`
+  if (d === todayStr) return 'Due today'
+  return `Due ${label}`
+}
+function openReturn(id: string) {
+  router.push({ name: 'return-checkin', params: { id } })
+}
 
 const isStaffPlus = computed(() => STAFF_PLUS.has(auth.role ?? ''))
 
@@ -139,8 +222,9 @@ async function load() {
         r.checkout_sessions.some((s) => s.person_confirmed_at && !s.staff_confirmed_at)
       )
     }
+    await loadReturns()
   } catch (e) {
-    error.value = errorMessage(e, 'Could not load pickups.')
+    error.value = errorMessage(e, 'Could not load pickups and returns.')
   } finally {
     loading.value = false
   }
@@ -170,7 +254,7 @@ function pendingNames(r: ReservationRow) {
       <div>
         <span class="view-eyebrow">Checkout</span>
         <h1>Pickup / Return</h1>
-        <p class="view-desc">Return/check-in is coming in the next pass — this covers pickup for now.</p>
+        <p class="view-desc">Pick up equipment when your window opens, and return it here — every return is checked in by Film Cage staff.</p>
       </div>
     </div>
 
@@ -199,9 +283,57 @@ function pendingNames(r: ReservationRow) {
         </div>
       </div>
 
+      <div>
+        <h2 style="font-size: 14px; margin-bottom: 8px; margin-top: 10px">
+          Equipment you have out <span class="badge-mini" v-if="myReturnRows.length">{{ myReturnRows.length }}</span>
+        </h2>
+        <p v-if="myReturnRows.length === 0" class="empty-note">You don't have any equipment checked out.</p>
+        <div v-else style="display: flex; flex-direction: column; gap: 12px">
+          <div v-for="r in myReturnRows" :key="r.id" class="card" style="cursor: pointer" @click="openReturn(r.id)">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
+              <div>
+                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
+                <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
+                  {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
+                </div>
+              </div>
+              <span v-if="r.pending" class="badge muted">Waiting on staff check-in</span>
+              <span v-else class="badge" :class="r.dropoff_date && r.dropoff_date < todayStr ? 'crit' : 'accent'">
+                {{ returnDueLabel(r.dropoff_date) || 'Return' }}
+              </span>
+            </div>
+            <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">{{ returnSummary(r) }}</div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="isStaffPlus">
         <h2 style="font-size: 14px; margin-bottom: 8px; margin-top: 10px">
-          Awaiting your confirmation <span class="badge-mini" v-if="staffRows.length">{{ staffRows.length }}</span>
+          Returns waiting for check-in <span class="badge-mini" v-if="staffReturnRows.length">{{ staffReturnRows.length }}</span>
+        </h2>
+        <p v-if="staffReturnRows.length === 0" class="empty-note">No returns waiting on staff right now.</p>
+        <div v-else style="display: flex; flex-direction: column; gap: 12px">
+          <div v-for="r in staffReturnRows" :key="r.id" class="card" style="cursor: pointer" @click="openReturn(r.id)">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
+              <div>
+                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
+                <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
+                  {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
+                </div>
+              </div>
+              <span class="badge warn">Needs check-in</span>
+            </div>
+            <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">
+              Returned by: {{ r.checkout_sessions.map((s) => s.person?.full_name ?? 'Unknown').join(', ') }}
+              <span v-if="returnDueLabel(r.dropoff_date)"> · {{ returnDueLabel(r.dropoff_date) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isStaffPlus">
+        <h2 style="font-size: 14px; margin-bottom: 8px; margin-top: 10px">
+          Pickups awaiting your confirmation <span class="badge-mini" v-if="staffRows.length">{{ staffRows.length }}</span>
         </h2>
         <p v-if="staffRows.length === 0" class="empty-note">Nothing waiting on staff right now.</p>
         <div v-else style="display: flex; flex-direction: column; gap: 12px">

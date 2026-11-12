@@ -213,10 +213,13 @@ const canCancel = computed(() => {
 // extend it to staff as well" (Suzanne, confirming it isn't admin-only).
 const canDelete = computed(() => !!row.value && isStaffPlus.value && !isLocked.value)
 
-// Early return: a stopgap ahead of the real Return/check-in feature --
-// any active reservation's own student or staff+ can close it out early.
-// Whole-reservation, same ownership shape as cancel/delete.
-const canReturnEarly = computed(() => !!row.value && row.value.status === 'active' && (isOwner.value || isStaffPlus.value))
+// Return (migration 31): an active reservation goes to the Return
+// screen -- early, on time, or late is the same staff check-in. The
+// holder and crew return their own gear there; staff check it in.
+const canReturn = computed(() => !!row.value && row.value.status === 'active')
+function openReturn() {
+  if (row.value) router.push({ name: 'return-checkin', params: { id: row.value.id } })
+}
 
 // A plain `staff` actor can never approve/deny their own -- supervisor
 // and admin can. Mirrors the database guard exactly; this is only
@@ -717,7 +720,6 @@ async function saveEdit() {
 // ---- cancel / delete / approve / deny ------------------------------
 const confirmingCancel = ref(false)
 const confirmingDelete = ref(false)
-const confirmingReturn = ref(false)
 const deleteBlockers = ref<{ fines: number; reviews: number; occurrences: number } | null>(null)
 const denying = ref(false)
 const denyReason = ref('')
@@ -774,21 +776,6 @@ async function doCancel() {
     await load()
   } catch (e) {
     actionError.value = errorMessage(e, 'Could not cancel this reservation.')
-  } finally {
-    busy.value = false
-  }
-}
-async function doReturnEarly() {
-  if (!row.value) return
-  busy.value = true
-  actionError.value = ''
-  try {
-    const { error: err } = await supabase.rpc('return_reservation_early', { p_reservation_id: row.value.id })
-    if (err) throw err
-    confirmingReturn.value = false
-    await load()
-  } catch (e) {
-    actionError.value = errorMessage(e, 'Could not return this equipment early.')
   } finally {
     busy.value = false
   }
@@ -912,8 +899,8 @@ async function doDelete() {
             Cancel reservation
           </button>
           <button v-if="canDelete && !confirmingDelete" class="btn danger small" :disabled="busy" @click="openDeletePrompt">Delete…</button>
-          <button v-if="canReturnEarly && !confirmingReturn" class="btn ghost small" :disabled="busy" @click="confirmingReturn = true">
-            Return equipment early
+          <button v-if="canReturn" class="btn primary small" @click="openReturn">
+            {{ isStaffPlus && !isOwner ? 'Go to return check-in' : 'Return equipment' }}
           </button>
         </div>
 
@@ -948,13 +935,6 @@ async function doDelete() {
           </template>
         </div>
 
-        <div v-if="confirmingReturn" class="field-hint" style="margin-top: 10px">
-          Are you sure you want to return the equipment early? This closes out the whole reservation now, ahead of its scheduled drop-off.
-          <div style="display: flex; gap: 8px; margin-top: 6px">
-            <button class="btn primary small" :disabled="busy" @click="doReturnEarly">Yes, return it now</button>
-            <button class="btn ghost small" @click="confirmingReturn = false">Never mind</button>
-          </div>
-        </div>
       </template>
 
       <!-- ---- edit mode ---- -->

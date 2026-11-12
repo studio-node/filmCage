@@ -252,6 +252,7 @@ const appointmentGroups = computed<AppointmentDayGroup[]>(() => {
 // submitted my half" rule, just trimmed to what a count needs.
 const readyForPickupCount = ref(0)
 const pendingPickupConfirmCount = ref(0)
+const pendingReturnCheckinCount = ref(0)
 
 interface PickupProbeRow {
   id: string
@@ -261,14 +262,14 @@ interface PickupProbeRow {
   pickup_date: string | null
   pickup_time: string | null
   reservation_crew: { user_id: string; pickup_time_override: string | null }[]
-  checkout_sessions: { person_user_id: string | null; person_confirmed_at: string | null; staff_confirmed_at: string | null }[]
+  checkout_sessions: { phase: string; person_user_id: string | null; person_confirmed_at: string | null; staff_confirmed_at: string | null }[]
 }
 const PICKUP_PROBE_FIELDS = `id, status, is_group_reservation, allow_individual_pickup_times, pickup_date, pickup_time,
   reservation_crew(user_id, pickup_time_override),
-  checkout_sessions(person_user_id, person_confirmed_at, staff_confirmed_at)`
+  checkout_sessions(phase, person_user_id, person_confirmed_at, staff_confirmed_at)`
 
 function isReadyForMe(r: PickupProbeRow, userId: string) {
-  const already = r.checkout_sessions.some((s) => s.person_user_id === userId && s.person_confirmed_at)
+  const already = r.checkout_sessions.some((s) => s.phase === 'pickup' && s.person_user_id === userId && s.person_confirmed_at)
   if (already) return false
   const crewRow = r.reservation_crew.find((c) => c.user_id === userId)
   let t = r.pickup_time
@@ -309,10 +310,14 @@ async function loadPendingPickupConfirmCount() {
       .in('status', ['approved', 'active'])
     const rows = (data ?? []) as unknown as PickupProbeRow[]
     pendingPickupConfirmCount.value = rows.filter((r) =>
-      r.checkout_sessions.some((s) => s.person_confirmed_at && !s.staff_confirmed_at)
+      r.checkout_sessions.some((s) => s.phase === 'pickup' && s.person_confirmed_at && !s.staff_confirmed_at)
+    ).length
+    pendingReturnCheckinCount.value = rows.filter((r) =>
+      r.checkout_sessions.some((s) => s.phase === 'return' && s.person_confirmed_at && !s.staff_confirmed_at)
     ).length
   } catch {
     pendingPickupConfirmCount.value = 0
+    pendingReturnCheckinCount.value = 0
   }
 }
 
@@ -616,6 +621,21 @@ function timeAgo(iso: string) {
           >
         </span>
         <router-link :to="{ name: 'pickup' }" class="btn primary small">Go to Pickup</router-link>
+      </div>
+
+      <div
+        v-if="pendingReturnCheckinCount > 0"
+        class="banner"
+        style="background: var(--warn-soft); border: 1px solid var(--warn-border); color: var(--warn)"
+      >
+        <span>
+          <strong
+            >{{ pendingReturnCheckinCount }} return{{ pendingReturnCheckinCount === 1 ? '' : 's' }} waiting for staff
+            check-in.</strong
+          >
+          A reservation isn't completed until its equipment is checked in.
+        </span>
+        <router-link :to="{ name: 'pickup' }" class="btn primary small">Go to Returns</router-link>
       </div>
 
       <!-- ============ Needs your approval — reservations + tier changes, merged, permission-filtered ============ -->

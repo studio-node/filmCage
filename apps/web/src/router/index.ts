@@ -10,6 +10,7 @@ import ReservationDetailView from '../views/ReservationDetailView.vue'
 import InventoryManagementView from '../views/InventoryManagementView.vue'
 import PickupReturnView from '../views/PickupReturnView.vue'
 import PickupCheckoutView from '../views/PickupCheckoutView.vue'
+import ReturnCheckinView from '../views/ReturnCheckinView.vue'
 import { useAuthStore } from '../stores/auth'
 
 const INVENTORY_ROUTE_NAMES = new Set(['inventory'])
@@ -40,6 +41,7 @@ const router = createRouter({
         // the Reservation Queue above.
         { path: 'pickup', name: 'pickup', component: PickupReturnView },
         { path: 'pickup/:id', name: 'pickup-checkout', component: PickupCheckoutView },
+        { path: 'return/:id', name: 'return-checkin', component: ReturnCheckinView },
         // Add Items and Edit Items are now one page, two tabs (see
         // InventoryManagementView.vue) -- 11/11 (later) ask, so staff
         // management tools live under a single nav entry instead of
