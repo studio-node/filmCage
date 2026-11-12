@@ -71,6 +71,10 @@
 .btn.danger { background: var(--danger); border-color: var(--danger); color: var(--danger-ink); }
 .btn.danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
 .btn.danger:disabled:hover { background: var(--danger); }
+/* Staff lists: the student/person is the headline, the reservation sits under it */
+.staff-row-name { font-family: var(--font-display); font-weight: 700; font-size: 18px; line-height: 1.2; color: var(--ink); }
+.staff-row-name.compact { font-size: 15.5px; }
+.staff-row-sub { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
 .btn.ghost { border-color: transparent; background: none; }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.small { padding: 5px 10px; font-size: 12px; border-radius: 7px; }

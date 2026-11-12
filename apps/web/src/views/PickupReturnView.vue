@@ -359,17 +359,4 @@ function pendingNames(r: ReservationRow) {
 .error-note {
   color: var(--crit);
 }
-/* Staff lists: the person at the counter is the headline, the reservation sits under it. */
-.staff-row-name {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 18px;
-  line-height: 1.2;
-  color: var(--ink);
-}
-.staff-row-sub {
-  font-size: 13px;
-  color: var(--ink-2);
-  margin-top: 3px;
-}
 </style>

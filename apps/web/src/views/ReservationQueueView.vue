@@ -389,12 +389,9 @@ function canEditRow(r: ReservationRow) {
                 <span class="badge accent" v-if="r.is_capstone">Capstone</span>
                 <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
               </div>
-              <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
-                {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
-              </div>
-              <div style="font-size: 12.5px; color: var(--ink-2); margin-top: 2px">
-                {{ r.student?.full_name ?? r.student?.email ?? 'Unknown student' }} · {{ scheduleLine(r) }}
-              </div>
+              <div class="staff-row-name" style="margin-top: 4px">{{ r.student?.full_name ?? r.student?.email ?? 'Unknown student' }}</div>
+              <div class="staff-row-sub">{{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}</div>
+              <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 2px">{{ scheduleLine(r) }}</div>
             </div>
             <span class="badge" :class="toneForReservationStatus(r.status)">{{ reservationStatusLabel(r.status) }}</span>
           </div>
@@ -457,12 +454,9 @@ function canEditRow(r: ReservationRow) {
                   <span class="badge accent" v-if="r.is_capstone">Capstone</span>
                   <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
                 </div>
-                <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
-                  {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
-                </div>
-                <div style="font-size: 12.5px; color: var(--ink-2); margin-top: 2px">
-                  {{ r.student?.full_name ?? r.student?.email ?? 'Unknown student' }} · {{ scheduleLine(r) }}
-                </div>
+                <div class="staff-row-name" style="margin-top: 4px">{{ r.student?.full_name ?? r.student?.email ?? 'Unknown student' }}</div>
+                <div class="staff-row-sub">{{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}</div>
+                <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 2px">{{ scheduleLine(r) }}</div>
               </div>
               <span class="badge" :class="toneForReservationStatus(r.status)">{{ reservationStatusLabel(r.status) }}</span>
             </div>

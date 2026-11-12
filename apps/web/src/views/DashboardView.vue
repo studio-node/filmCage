@@ -666,11 +666,11 @@ function timeAgo(iso: string) {
                     <span class="badge accent" v-if="item.row.is_capstone">Capstone</span>
                     <span class="badge violet" v-if="item.row.is_group_reservation">Group production</span>
                   </div>
-                  <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
-                    {{ item.row.reservation_name }} · {{ item.row.locations?.name ?? '—' }}
+                  <div class="staff-row-name" style="margin-top: 4px">
+                    {{ item.row.student?.full_name ?? item.row.student?.email ?? 'Unknown student' }}
                   </div>
-                  <div style="font-size: 12.5px; color: var(--ink-2); margin-top: 2px">
-                    {{ item.row.student?.full_name ?? item.row.student?.email ?? 'Unknown student' }} ·
+                  <div class="staff-row-sub">{{ item.row.reservation_name }} · {{ item.row.locations?.name ?? '—' }}</div>
+                  <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 2px">
                     {{ formatDate(item.row.pickup_date) }} {{ formatTime(item.row.pickup_time) }} →
                     {{ formatDate(item.row.dropoff_date) }} {{ formatTime(item.row.dropoff_time) }}
                   </div>
@@ -748,7 +748,7 @@ function timeAgo(iso: string) {
                   <div style="display: flex; gap: 8px; align-items: center">
                     <span class="badge muted">Tier change</span>
                   </div>
-                  <div style="font-weight: 600; margin-top: 4px">{{ item.row.users?.full_name ?? 'Unknown student' }}</div>
+                  <div class="staff-row-name" style="margin-top: 4px">{{ item.row.users?.full_name ?? 'Unknown student' }}</div>
                   <div class="field-hint">{{ item.row.users?.email }}</div>
                   <div style="margin-top: 4px; font-size: 12.5px">
                     Took
@@ -817,11 +817,14 @@ function timeAgo(iso: string) {
                     {{ event.type === 'pickup' ? 'Pickup' : 'Return' }}
                   </span>
                   <span class="mono" style="font-size: 12.5px; color: var(--ink-2)">{{ formatTime(event.time) || '—' }}</span>
-                  <span style="font-weight: 600">{{ event.reservation.reservation_name }}</span>
-                  <span style="font-size: 12.5px; color: var(--ink-2)">
-                    {{ event.reservation.student?.full_name ?? event.reservation.student?.email ?? 'Unknown student' }} ·
-                    {{ event.reservation.locations?.name ?? '—' }}
-                  </span>
+                  <div>
+                    <div class="staff-row-name compact">
+                      {{ event.reservation.student?.full_name ?? event.reservation.student?.email ?? 'Unknown student' }}
+                    </div>
+                    <div class="staff-row-sub" style="margin-top: 1px">
+                      {{ event.reservation.reservation_name }} · {{ event.reservation.locations?.name ?? '—' }}
+                    </div>
+                  </div>
                   <span class="badge accent" v-if="event.reservation.is_capstone">Capstone</span>
                   <span class="badge violet" v-if="event.reservation.is_group_reservation">Group</span>
                 </div>
