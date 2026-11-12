@@ -316,16 +316,16 @@ function pendingNames(r: ReservationRow) {
           <div v-for="r in staffReturnRows" :key="r.id" class="card" style="cursor: pointer" @click="openReturn(r.id)">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
               <div>
-                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
-                <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
-                  {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
-                </div>
+                <div class="staff-row-name">{{ r.checkout_sessions.map((s) => s.person?.full_name ?? 'Unknown').join(', ') }}</div>
+                <div class="staff-row-sub">{{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}</div>
               </div>
-              <span class="badge warn">Needs check-in</span>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end">
+                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
+                <span class="badge warn">Needs check-in</span>
+              </div>
             </div>
-            <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">
-              Returned by: {{ r.checkout_sessions.map((s) => s.person?.full_name ?? 'Unknown').join(', ') }}
-              <span v-if="returnDueLabel(r.dropoff_date)"> · {{ returnDueLabel(r.dropoff_date) }}</span>
+            <div v-if="returnDueLabel(r.dropoff_date)" style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">
+              {{ returnDueLabel(r.dropoff_date) }}
             </div>
           </div>
         </div>
@@ -340,14 +340,14 @@ function pendingNames(r: ReservationRow) {
           <div v-for="r in staffRows" :key="r.id" class="card" style="cursor: pointer" @click="openRow(r)">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
               <div>
-                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
-                <div style="font-weight: 700; font-size: 14.5px; margin-top: 4px">
-                  {{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}
-                </div>
+                <div class="staff-row-name">{{ pendingNames(r) || r.student?.full_name || 'Unknown' }}</div>
+                <div class="staff-row-sub">{{ r.reservation_name }} · {{ r.locations?.name ?? '—' }}</div>
               </div>
-              <span class="badge warn">Needs confirmation</span>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end">
+                <span class="badge violet" v-if="r.is_group_reservation">Group production</span>
+                <span class="badge warn">Needs confirmation</span>
+              </div>
             </div>
-            <div style="font-size: 12.5px; color: var(--ink-3); margin-top: 8px">Submitted: {{ pendingNames(r) }}</div>
           </div>
         </div>
       </div>
@@ -358,5 +358,18 @@ function pendingNames(r: ReservationRow) {
 <style scoped>
 .error-note {
   color: var(--crit);
+}
+/* Staff lists: the person at the counter is the headline, the reservation sits under it. */
+.staff-row-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.staff-row-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-top: 3px;
 }
 </style>
