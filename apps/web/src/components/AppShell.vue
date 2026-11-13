@@ -14,7 +14,7 @@ interface NavItem {
   label: string
   routeName: string | null // null = not built yet
   roles: Array<'student' | 'staff' | 'supervisor' | 'admin' | 'class_instructor'>
-  icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'chart' | 'shield'
+  icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'camera' | 'chart' | 'shield'
   // Two sidebar sections (11/11, later ask): 'self' is checkout/
   // reservations for yourself, open to everyone; 'staff' is
   // management tooling, staff+ only. A student only ever sees the
@@ -35,7 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   // mirrored by staff on the same screen, not a staff-only tool.
   // (Still labeled "Pickup / Return" even though only pickup is built
   // so far -- return is the next pass, same nav slot.)
-  { key: 'pickup', label: 'Pickup / Return', routeName: 'pickup', roles: ALL_ROLES, icon: 'truck', group: 'self' },
+  { key: 'pickup', label: 'Pickup / Return', routeName: 'pickup', roles: ALL_ROLES, icon: 'camera', group: 'self' },
   { key: 'reservation-queue', label: 'Reservation Queue', routeName: 'reservation-queue', roles: STAFF_PLUS_ROLES, icon: 'inbox', group: 'staff' },
   { key: 'analytics', label: 'Analytics', routeName: null, roles: STAFF_PLUS_ROLES, icon: 'chart', group: 'staff' },
   // Add Items and Edit Items merged into one page, two tabs (see
