@@ -10,7 +10,7 @@ withDefaults(
     name:
       | 'menu' | 'search' | 'close' | 'bell' | 'lock' | 'camera' | 'check'
       | 'chevron-left' | 'chevron-right' | 'sun' | 'moon'
-      | 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'chart' | 'shield'
+      | 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'chart' | 'shield' | 'users'
     size?: number
   }>(),
   { size: 18 }
@@ -138,6 +138,13 @@ withDefaults(
       <rect x="6" y="13" width="3.2" height="7" rx="0.6" />
       <rect x="10.4" y="8.5" width="3.2" height="11.5" rx="0.6" />
       <rect x="14.8" y="4.5" width="3.2" height="15.5" rx="0.6" />
+    </template>
+
+    <template v-else-if="name === 'users'">
+      <circle cx="9" cy="8.5" r="3.3" />
+      <path d="M3.2 19.5c.6-3.3 3-5.2 5.8-5.2s5.2 1.9 5.8 5.2" />
+      <path d="M15.4 5.6a3 3 0 0 1 0 5.8" />
+      <path d="M17.2 14.6c1.9.6 3.2 2.3 3.6 4.9" />
     </template>
 
     <template v-else-if="name === 'shield'">

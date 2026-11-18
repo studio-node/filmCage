@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import logoFull from '../assets/logo-full.png'
+import { sendPasswordResetEmail } from '../lib/passwordReset'
 
 const email = ref('')
 const password = ref('')
@@ -11,6 +12,22 @@ const submitting = ref(false)
 
 const auth = useAuthStore()
 const router = useRouter()
+
+const resetNote = ref('')
+async function forgotPassword() {
+  error.value = ''
+  resetNote.value = ''
+  if (!email.value.trim()) {
+    error.value = 'Type your email above first, then click "Forgot password?" again.'
+    return
+  }
+  try {
+    await sendPasswordResetEmail(email.value.trim())
+    resetNote.value = `If ${email.value.trim()} has an account, a reset link is on its way.`
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Could not send a reset email.'
+  }
+}
 
 async function onSubmit() {
   error.value = ''
@@ -46,6 +63,8 @@ async function onSubmit() {
         <button class="btn primary" type="submit" :disabled="submitting" style="width: 100%; margin-top: 4px">
           {{ submitting ? 'Signing in…' : 'Sign in' }}
         </button>
+        <button type="button" class="link-btn" @click="forgotPassword">Forgot password?</button>
+        <p v-if="resetNote" class="info-note">{{ resetNote }}</p>
         <p v-if="error" class="error-note">{{ error }}</p>
       </form>
     </div>
@@ -90,6 +109,19 @@ async function onSubmit() {
   color: var(--ink-2);
   font-size: 12.5px;
   margin-top: -6px;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  align-self: center;
+  padding: 0;
+}
+.link-btn:hover {
+  text-decoration: underline;
 }
 form {
   display: flex;

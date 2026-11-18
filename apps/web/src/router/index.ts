@@ -11,11 +11,14 @@ import InventoryManagementView from '../views/InventoryManagementView.vue'
 import PickupReturnView from '../views/PickupReturnView.vue'
 import PickupCheckoutView from '../views/PickupCheckoutView.vue'
 import ReturnCheckinView from '../views/ReturnCheckinView.vue'
+import UsersView from '../views/UsersView.vue'
+import UserDetailView from '../views/UserDetailView.vue'
+import ResetPasswordView from '../views/ResetPasswordView.vue'
 import { useAuthStore } from '../stores/auth'
 
 const INVENTORY_ROUTE_NAMES = new Set(['inventory'])
 const INVENTORY_ROLES = new Set(['staff', 'supervisor', 'admin'])
-const STAFF_ROUTE_NAMES = new Set(['reservation-queue'])
+const STAFF_ROUTE_NAMES = new Set(['reservation-queue', 'users', 'user-detail'])
 const STAFF_ROLES = new Set(['staff', 'supervisor', 'admin'])
 
 const router = createRouter({
@@ -24,6 +27,8 @@ const router = createRouter({
   history: createWebHashHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
+    // Landing page for a password-reset email (see stores/auth.ts init()).
+    { path: '/reset-password', name: 'reset-password', component: ResetPasswordView },
     {
       path: '/',
       component: AppShell,
@@ -49,6 +54,9 @@ const router = createRouter({
         // (query.tab picks the right tab) so an old bookmark or a
         // stale link still lands somewhere sensible.
         { path: 'inventory', name: 'inventory', component: InventoryManagementView },
+        // Staff+ Users page (Users / Fine Resolution tabs) and one person's page.
+        { path: 'users', name: 'users', component: UsersView },
+        { path: 'users/:id', name: 'user-detail', component: UserDetailView },
         { path: 'admin', name: 'admin', redirect: { name: 'inventory', query: { tab: 'add' } } },
         { path: 'admin/items', name: 'admin-edit', redirect: { name: 'inventory', query: { tab: 'edit' } } },
       ],
@@ -61,6 +69,11 @@ const router = createRouter({
 // no need to await anything here.
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  // Opened a reset link: stay on Set New Password until it's done.
+  if (to.name === 'reset-password') return true
+  if (auth.passwordRecovery && auth.user) {
+    return { name: 'reset-password' }
+  }
   if (to.name !== 'login' && !auth.user) {
     return { name: 'login' }
   }

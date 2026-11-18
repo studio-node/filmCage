@@ -14,7 +14,7 @@ interface NavItem {
   label: string
   routeName: string | null // null = not built yet
   roles: Array<'student' | 'staff' | 'supervisor' | 'admin' | 'class_instructor'>
-  icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'camera' | 'chart' | 'shield'
+  icon: 'grid' | 'box' | 'calendar' | 'list' | 'inbox' | 'truck' | 'camera' | 'chart' | 'shield' | 'users'
   // Two sidebar sections (11/11, later ask): 'self' is checkout/
   // reservations for yourself, open to everyone; 'staff' is
   // management tooling, staff+ only. A student only ever sees the
@@ -42,6 +42,9 @@ const NAV_ITEMS: NavItem[] = [
   // InventoryManagementView.vue) -- was two near-duplicate nav
   // entries for what's really one job.
   { key: 'inventory', label: 'Inventory Management', routeName: 'inventory', roles: STAFF_PLUS_ROLES, icon: 'shield', group: 'staff' },
+  // Users (11/18): people lookup + account management, and the Fine
+  // Resolution tab. Admin-only edits are gated inside the page itself.
+  { key: 'users', label: 'Users', routeName: 'users', roles: STAFF_PLUS_ROLES, icon: 'users', group: 'staff' },
 ]
 
 const auth = useAuthStore()
