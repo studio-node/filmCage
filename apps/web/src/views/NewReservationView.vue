@@ -347,12 +347,25 @@ watch(pickupDate, () => {
 // window, and the hard inventory check are all otherwise identical.
 const leadTimeDays = computed(() => (isCapstone.value ? CAPSTONE_LEAD_TIME_DAYS : LEAD_TIME_DAYS))
 
+// Friday pickups and drop-offs always need staff approval
+// (reservations_approval_guard, isodow 5) -- except when staff book on
+// someone else's behalf, which the database waives (v_bypass).
+function isFriday(dateStr: string) {
+  return !!dateStr && new Date(dateStr + 'T12:00:00').getDay() === 5
+}
+const fridayWaived = computed(() => isStaffPlus.value && !isPersonalUse.value)
+
 const pickupNote = computed(() => {
   if (!pickupDate.value) return null
   const closure = closureFor(pickupDate.value)
   if (closure) return { tone: 'lock-note', text: `Closed this day — ${closure.reason}.` }
   const info = dayInfo(pickupDate.value)
   if (!info) return { tone: 'lock-note', text: 'This location is closed that day. Pick a different date.' }
+  if (isFriday(pickupDate.value) && !fridayWaived.value)
+    return {
+      tone: 'info-note',
+      text: 'Friday is by appointment only — a Friday pickup needs staff approval before it\'s confirmed.',
+    }
   if (info.appointment_only)
     return {
       tone: 'info-note',
@@ -365,6 +378,20 @@ const pickupNote = computed(() => {
   const diffDays = Math.round((lead.getTime() - today.getTime()) / 86400000)
   if (diffDays < leadTimeDays.value)
     return { tone: 'info-note', text: `Less than ${leadTimeDays.value} days out — this will need staff approval.` }
+  return null
+})
+
+const dropoffNote = computed(() => {
+  if (!dropoffDate.value) return null
+  const closure = closureFor(dropoffDate.value)
+  if (closure) return { tone: 'lock-note', text: `Closed on the drop-off day — ${closure.reason}.` }
+  if (!dayInfo(dropoffDate.value))
+    return { tone: 'lock-note', text: 'This location is closed on the drop-off day. Pick a different date.' }
+  if (isFriday(dropoffDate.value) && !fridayWaived.value)
+    return {
+      tone: 'info-note',
+      text: 'Friday is by appointment only — a Friday drop-off needs staff approval before it\'s confirmed.',
+    }
   return null
 })
 
@@ -381,7 +408,7 @@ const loanWindowNote = computed(() => {
 const approvalNote = computed(() => {
   if (isOverThreshold.value)
     return `This reservation is over ${APPROVAL_ITEM_THRESHOLD} items — it needs a staff member or admin to approve it before gear is assigned.`
-  if (pickupNote.value || loanWindowNote.value)
+  if (pickupNote.value || dropoffNote.value || loanWindowNote.value)
     return 'One or more of your dates needs staff approval — see the notes above. The reservation is still submitted now and will be reviewed.'
   return `At or under ${APPROVAL_ITEM_THRESHOLD} items and within the standard checkout time windows, this reservation is confirmed as soon as you submit. Otherwise, it will require approval by Film Cage staff.`
 })
@@ -976,6 +1003,7 @@ async function submitReservation() {
           </div>
         </div>
         <div v-if="pickupNote" :class="pickupNote.tone">{{ pickupNote.text }}</div>
+        <div v-if="dropoffNote" :class="dropoffNote.tone">{{ dropoffNote.text }}</div>
         <div v-if="loanWindowNote" :class="loanWindowNote.tone">{{ loanWindowNote.text }}</div>
 
         <div class="field-row">
