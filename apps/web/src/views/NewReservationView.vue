@@ -127,11 +127,11 @@ const dropoffTime = ref('')
 const clock = useCageClock()
 const todayStr = computed(() => clock.value.date)
 
-// Staff+ only: allow a pickup time earlier TODAY, for entering a walk-up
-// that already happened (e.g. half an hour ago). Never a past date --
-// the database rejects that for everyone (migration 33), and also
-// rejects a passed time today for anyone who isn't staff+.
-const allowPastTimeToday = ref(false)
+// Staff+ can pick any slot on any open day, including times that have
+// already passed today (e.g. entering a walk-up after the fact) -- no
+// greying, no checkbox (Suzanne, 11/19). Students still can't pick a
+// passed time. Past DATES stay blocked for everyone; the database
+// enforces both rules (migration 33).
 
 const isGroupReservation = ref(false)
 const allowIndividualPickupTimes = ref(false)
@@ -273,7 +273,7 @@ const cartItemCount = computed(() => lines.value.reduce((s, l) => s + l.quantity
 const isOverThreshold = computed(() => cartItemCount.value > APPROVAL_ITEM_THRESHOLD)
 const isApprovalExempt = computed(() => isStaffPlus.value || (auth.role ?? 'student') !== 'student')
 
-// `allowPast` = staff override for today's pickup (see allowPastTimeToday).
+// `allowPast` = staff+ (see the note by todayStr): nothing is greyed for them.
 // Slots that have already passed today stay in the list, greyed out.
 function slotOptions(dateStr: string, allowPast = false) {
   const info = dayInfo(dateStr)
@@ -293,9 +293,9 @@ function slotOptions(dateStr: string, allowPast = false) {
   return opts
 }
 
-const pickupOverrideOn = computed(() => isStaffPlus.value && allowPastTimeToday.value)
+const pickupOverrideOn = computed(() => isStaffPlus.value)
 const pickupSlots = computed(() => slotOptions(pickupDate.value, pickupOverrideOn.value))
-const dropoffSlots = computed(() => slotOptions(dropoffDate.value))
+const dropoffSlots = computed(() => slotOptions(dropoffDate.value, isStaffPlus.value))
 
 // Earliest pickup date anyone can choose. Once today has no pickup
 // slot left (normally after the 4:30 PM last start), today drops off
@@ -337,9 +337,6 @@ watch([pickupDate, pickupSlots], () => {
 watch([dropoffDate, dropoffSlots], () => {
   const slot = dropoffSlots.value.find((s) => s.time === dropoffTime.value)
   if (!slot || slot.past) dropoffTime.value = ''
-})
-watch(pickupDate, () => {
-  if (pickupDate.value !== todayStr.value) allowPastTimeToday.value = false
 })
 
 // 7 days for a capstone reservation, 3 for everything else -- the one
@@ -1014,10 +1011,6 @@ async function submitReservation() {
               <option v-for="s in pickupSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
             </select>
             <p v-if="pickupDate && pickupSlots.length === 0" class="field-hint">Closed this day.</p>
-            <label v-if="isStaffPlus && pickupDate === todayStr" class="override-check">
-              <input v-model="allowPastTimeToday" type="checkbox" />
-              Pickup already happened earlier today (staff only)
-            </label>
           </div>
           <div class="field">
             <label>Drop-off time</label>
@@ -1252,13 +1245,5 @@ async function submitReservation() {
 <style scoped>
 .error-note {
   color: var(--crit);
-}
-.override-check {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12.5px;
-  color: var(--ink-2);
-  margin-top: 6px;
 }
 </style>
