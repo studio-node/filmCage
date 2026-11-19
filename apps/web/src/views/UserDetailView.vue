@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
+import { cageToday } from '../lib/cageTime'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../lib/errors'
 import { toneForReservationStatus, reservationStatusLabel, type ReservationStatus } from '../lib/conditionStatus'
@@ -390,7 +391,7 @@ function issueFine() {
 }
 
 // ---------------- reservations ----------------
-const today = new Date().toISOString().slice(0, 10)
+const today = cageToday()
 function bucket(r: ResRow): 'active' | 'upcoming' | 'past' {
   if (r.status === 'active') return 'active'
   const relevantDate = r.dropoff_date ?? r.pickup_date

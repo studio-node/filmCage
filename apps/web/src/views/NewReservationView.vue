@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore, type CatalogItem } from '../stores/catalog'
 import { errorMessage } from '../lib/errors'
+import { useCageClock, addDays } from '../lib/cageTime'
 import IconBase from '../components/icons/IconBase.vue'
 
 // Mirrors reservations_approval_guard()'s threshold exactly (see the
@@ -121,7 +122,16 @@ const dropoffTime = ref('')
 // APPROVAL_ITEM_THRESHOLD comment above: the database (reservations_approval_guard)
 // is what actually rejects a past pickup date, this just keeps someone from
 // picking one in the first place.
-const todayStr = computed(() => new Date().toISOString().slice(0, 10))
+// Today on the Cage's local clock (not UTC -- see lib/cageTime.ts),
+// refreshed every 30s so passed times grey out while the page is open.
+const clock = useCageClock()
+const todayStr = computed(() => clock.value.date)
+
+// Staff+ only: allow a pickup time earlier TODAY, for entering a walk-up
+// that already happened (e.g. half an hour ago). Never a past date --
+// the database rejects that for everyone (migration 33), and also
+// rejects a passed time today for anyone who isn't staff+.
+const allowPastTimeToday = ref(false)
 
 const isGroupReservation = ref(false)
 const allowIndividualPickupTimes = ref(false)
@@ -202,7 +212,7 @@ async function loadSchedule() {
         .from('location_closures')
         .select('date, reason')
         .eq('location_id', locationId.value)
-        .gte('date', new Date().toISOString().slice(0, 10)),
+        .gte('date', todayStr.value),
     ])
     hours.value = (hoursRes.data ?? []) as LocationHours[]
     closures.value = (closuresRes.data ?? []) as Closure[]
@@ -263,29 +273,73 @@ const cartItemCount = computed(() => lines.value.reduce((s, l) => s + l.quantity
 const isOverThreshold = computed(() => cartItemCount.value > APPROVAL_ITEM_THRESHOLD)
 const isApprovalExempt = computed(() => isStaffPlus.value || (auth.role ?? 'student') !== 'student')
 
-function slotOptions(dateStr: string) {
+// `allowPast` = staff override for today's pickup (see allowPastTimeToday).
+// Slots that have already passed today stay in the list, greyed out.
+function slotOptions(dateStr: string, allowPast = false) {
   const info = dayInfo(dateStr)
   if (!info || !info.open_time || !info.close_time) return []
+  const isToday = dateStr === todayStr.value
+  const nowMins = clock.value.minutes
   const step = isOverThreshold.value ? 30 : 15
   const lastWindow = isOverThreshold.value ? 60 : 30
   const open = timeToMins(info.open_time)
   const close = timeToMins(info.close_time)
   const lastStart = close - lastWindow
-  const opts: { time: string; label: string }[] = []
+  const opts: { time: string; label: string; past: boolean }[] = []
   for (let m = open; m <= lastStart; m += step) {
-    opts.push({ time: minsToHHMM(m), label: minsToLabel(m) })
+    const past = isToday && m < nowMins && !allowPast
+    opts.push({ time: minsToHHMM(m), label: past ? `${minsToLabel(m)} (passed)` : minsToLabel(m), past })
   }
   return opts
 }
 
-const pickupSlots = computed(() => slotOptions(pickupDate.value))
+const pickupOverrideOn = computed(() => isStaffPlus.value && allowPastTimeToday.value)
+const pickupSlots = computed(() => slotOptions(pickupDate.value, pickupOverrideOn.value))
 const dropoffSlots = computed(() => slotOptions(dropoffDate.value))
 
-watch(pickupDate, () => {
-  if (!pickupSlots.value.find((s) => s.time === pickupTime.value)) pickupTime.value = ''
+// Earliest pickup date anyone can choose. Once today has no pickup
+// slot left (normally after the 4:30 PM last start), today drops off
+// and the next day becomes the earliest choice. Staff with the override
+// on keep today as long as the Cage is open today at all.
+function hasOpenSlot(dateStr: string, allowPast: boolean) {
+  if (closureFor(dateStr)) return false
+  return slotOptions(dateStr, allowPast).some((s) => !s.past)
+}
+const minPickupDate = computed(() => {
+  if (!locationId.value || hours.value.length === 0) return todayStr.value
+  return hasOpenSlot(todayStr.value, pickupOverrideOn.value) ? todayStr.value : addDays(todayStr.value, 1)
 })
-watch(dropoffDate, () => {
-  if (!dropoffSlots.value.find((s) => s.time === dropoffTime.value)) dropoffTime.value = ''
+// First day from the minimum on that actually has hours, for the default.
+const firstOpenPickupDate = computed(() => {
+  for (let i = 0; i < 14; i++) {
+    const d = addDays(minPickupDate.value, i)
+    if (hasOpenSlot(d, false)) return d
+  }
+  return minPickupDate.value
+})
+// Default/bump: today is over (or the chosen date is now in the past)
+// -> move the pickup date to the next open day.
+watch(
+  [minPickupDate, firstOpenPickupDate],
+  () => {
+    if (minPickupDate.value === todayStr.value) return
+    if (!pickupDate.value || pickupDate.value < minPickupDate.value) {
+      pickupDate.value = firstOpenPickupDate.value
+    }
+  },
+  { immediate: true }
+)
+
+watch([pickupDate, pickupSlots], () => {
+  const slot = pickupSlots.value.find((s) => s.time === pickupTime.value)
+  if (!slot || slot.past) pickupTime.value = ''
+})
+watch([dropoffDate, dropoffSlots], () => {
+  const slot = dropoffSlots.value.find((s) => s.time === dropoffTime.value)
+  if (!slot || slot.past) dropoffTime.value = ''
+})
+watch(pickupDate, () => {
+  if (pickupDate.value !== todayStr.value) allowPastTimeToday.value = false
 })
 
 // 7 days for a capstone reservation, 3 for everything else -- the one
@@ -662,6 +716,13 @@ function validate(): string | null {
   }
   if (!scheduleReady.value) return 'Pick a valid pickup and drop-off date and time.'
   if (pickupDate.value < todayStr.value) return 'Pickup date can\'t be in the past.'
+  if (
+    pickupDate.value === todayStr.value &&
+    !pickupOverrideOn.value &&
+    timeToMins(pickupTime.value) < clock.value.minutes
+  ) {
+    return 'That pickup time has already passed. Pick a later time or another day.'
+  }
   if (isGroupReservation.value && crew.some((c) => c.query.trim() && !c.userId)) {
     return 'Pick a real person from the list for every crew member, or remove the row.'
   }
@@ -907,11 +968,11 @@ async function submitReservation() {
         <div class="field-row">
           <div class="field">
             <label>Pickup date</label>
-            <input v-model="pickupDate" type="date" :min="todayStr" />
+            <input v-model="pickupDate" type="date" :min="minPickupDate" />
           </div>
           <div class="field">
             <label>Drop-off date</label>
-            <input v-model="dropoffDate" type="date" :min="pickupDate || todayStr" />
+            <input v-model="dropoffDate" type="date" :min="pickupDate || minPickupDate" />
           </div>
         </div>
         <div v-if="pickupNote" :class="pickupNote.tone">{{ pickupNote.text }}</div>
@@ -922,15 +983,19 @@ async function submitReservation() {
             <label>Pickup time</label>
             <select v-model="pickupTime" class="select-time">
               <option value="" disabled>Select a time…</option>
-              <option v-for="s in pickupSlots" :key="s.time" :value="s.time">{{ s.label }}</option>
+              <option v-for="s in pickupSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
             </select>
             <p v-if="pickupDate && pickupSlots.length === 0" class="field-hint">Closed this day.</p>
+            <label v-if="isStaffPlus && pickupDate === todayStr" class="override-check">
+              <input v-model="allowPastTimeToday" type="checkbox" />
+              Pickup already happened earlier today (staff only)
+            </label>
           </div>
           <div class="field">
             <label>Drop-off time</label>
             <select v-model="dropoffTime" class="select-time">
               <option value="" disabled>Select a time…</option>
-              <option v-for="s in dropoffSlots" :key="s.time" :value="s.time">{{ s.label }}</option>
+              <option v-for="s in dropoffSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
             </select>
             <p v-if="dropoffDate && dropoffSlots.length === 0" class="field-hint">Closed this day.</p>
           </div>
@@ -1159,5 +1224,13 @@ async function submitReservation() {
 <style scoped>
 .error-note {
   color: var(--crit);
+}
+.override-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  margin-top: 6px;
 }
 </style>

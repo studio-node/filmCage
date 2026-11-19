@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
+import { cageToday } from '../lib/cageTime'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../lib/errors'
 import {
@@ -195,7 +196,7 @@ const approvalItems = computed<ApprovalItem[]>(() => {
 // date is history, not an upcoming appointment); it contributes a
 // drop-off event at any of pending/approved/active, since the return
 // is still ahead of it either way.
-const todayStr = new Date().toISOString().slice(0, 10)
+const todayStr = cageToday()
 
 const appointmentEvents = computed<AppointmentEvent[]>(() => {
   const events: AppointmentEvent[] = []

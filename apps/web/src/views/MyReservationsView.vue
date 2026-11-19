@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
+import { cageToday } from '../lib/cageTime'
 import { useAuthStore } from '../stores/auth'
 import { toneForReservationStatus, reservationStatusLabel, type ReservationStatus } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
@@ -143,7 +144,7 @@ load()
 // Active is literally status = 'active'; Past is completed/cancelled/
 // denied OR a drop-off date that's already gone by, whatever the
 // status; everything else is Upcoming.
-const today = new Date().toISOString().slice(0, 10)
+const today = cageToday()
 function bucket(r: ReservationRow): 'active' | 'upcoming' | 'past' {
   if (r.status === 'active') return 'active'
   const relevantDate = r.dropoff_date ?? r.pickup_date

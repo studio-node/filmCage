@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabaseClient'
+import { cageToday, cageNow } from '../lib/cageTime'
 import { useAuthStore } from '../stores/auth'
 import { toneForReservationStatus, reservationStatusLabel, type ReservationStatus } from '../lib/conditionStatus'
 import { errorMessage } from '../lib/errors'
@@ -195,7 +196,7 @@ const canEditItems = computed(() => !!row.value && canEdit.value && ITEM_EDITABL
 // service specifically -- staff+ cancelling someone else's from the
 // Queue keeps the broader "just not locked" rule, no bucket
 // restriction, matching ReservationQueueView.
-const today = new Date().toISOString().slice(0, 10)
+const today = cageToday()
 function bucketOf(r: ReservationRow): 'active' | 'upcoming' | 'past' {
   if (r.status === 'active') return 'active'
   const relevantDate = r.dropoff_date ?? r.pickup_date
@@ -550,9 +551,23 @@ async function saveEdit() {
         saveError.value = 'Drop-off must be after pickup.'
         return
       }
-      if (draftPickupDate.value < today) {
+      const nowLocal = cageNow()
+      if (draftPickupDate.value < nowLocal.date) {
         saveError.value = "Pickup date can't be in the past."
         return
+      }
+      // A passed time today is only allowed for staff+ (a walk-up entered
+      // after the fact), and only checked when the pickup actually moved --
+      // same rule as the database (migration 33).
+      const pickupMoved =
+        draftPickupDate.value !== r.pickup_date ||
+        draftPickupTime.value.slice(0, 5) !== (r.pickup_time ?? '').slice(0, 5)
+      if (pickupMoved && !isStaffPlus.value && draftPickupDate.value === nowLocal.date) {
+        const [h, m] = draftPickupTime.value.split(':').map(Number)
+        if (h * 60 + m < nowLocal.minutes) {
+          saveError.value = 'That pickup time has already passed. Pick a later time or another day.'
+          return
+        }
       }
     }
 
