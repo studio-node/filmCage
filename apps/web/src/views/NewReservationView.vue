@@ -109,6 +109,20 @@ const loadingSchedule = ref(false)
 const locationId = ref('')
 const locationName = computed(() => catalog.locationById.get(locationId.value)?.name ?? '')
 
+// Dates and times depend on the location's hours, so they stay greyed
+// out until a location is picked. Clicking a greyed date/time shows
+// "Pick a location first" and jumps to the location picker.
+const locationSelect = ref<HTMLSelectElement | null>(null)
+const locationPrompt = ref(false)
+function promptForLocation() {
+  locationPrompt.value = true
+  locationSelect.value?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  locationSelect.value?.focus()
+}
+watch(locationId, (id) => {
+  if (id) locationPrompt.value = false
+})
+
 const reservationName = ref('')
 const isCapstone = ref(false)
 const capstoneAppointmentDate = ref('')
@@ -929,7 +943,7 @@ async function submitReservation() {
 
         <div class="field">
           <label>Location</label>
-          <select v-model="locationId">
+          <select ref="locationSelect" v-model="locationId" :class="{ 'needs-attention': locationPrompt }">
             <option value="" disabled>Select a location…</option>
             <option v-for="l in catalog.locations" :key="l.id" :value="l.id">{{ l.name }}</option>
           </select>
@@ -992,13 +1006,22 @@ async function submitReservation() {
         <div class="field-row">
           <div class="field">
             <label>Pickup date</label>
-            <input v-model="pickupDate" type="date" :min="minPickupDate" />
+            <div class="locked-wrap">
+              <input v-model="pickupDate" type="date" :min="minPickupDate" :disabled="!locationId" />
+              <button v-if="!locationId" type="button" class="locked-overlay" aria-label="Pick a location first" @click="promptForLocation" />
+            </div>
           </div>
           <div class="field">
             <label>Drop-off date</label>
-            <input v-model="dropoffDate" type="date" :min="pickupDate || minPickupDate" />
+            <div class="locked-wrap">
+              <input v-model="dropoffDate" type="date" :min="pickupDate || minPickupDate" :disabled="!locationId" />
+              <button v-if="!locationId" type="button" class="locked-overlay" aria-label="Pick a location first" @click="promptForLocation" />
+            </div>
           </div>
         </div>
+        <p v-if="!locationId" :class="locationPrompt ? 'error-note' : 'field-hint'">
+          Pick a location first. Dates and times depend on that location's hours.
+        </p>
         <div v-if="pickupNote" :class="pickupNote.tone">{{ pickupNote.text }}</div>
         <div v-if="dropoffNote" :class="dropoffNote.tone">{{ dropoffNote.text }}</div>
         <div v-if="loanWindowNote" :class="loanWindowNote.tone">{{ loanWindowNote.text }}</div>
@@ -1006,18 +1029,24 @@ async function submitReservation() {
         <div class="field-row">
           <div class="field">
             <label>Pickup time</label>
-            <select v-model="pickupTime" class="select-time">
-              <option value="" disabled>Select a time…</option>
-              <option v-for="s in pickupSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
-            </select>
+<div class="locked-wrap">
+              <select v-model="pickupTime" class="select-time" :disabled="!locationId">
+                <option value="" disabled>Select a time…</option>
+                <option v-for="s in pickupSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
+              </select>
+              <button v-if="!locationId" type="button" class="locked-overlay" aria-label="Pick a location first" @click="promptForLocation" />
+            </div>
             <p v-if="pickupDate && pickupSlots.length === 0" class="field-hint">Closed this day.</p>
           </div>
           <div class="field">
             <label>Drop-off time</label>
-            <select v-model="dropoffTime" class="select-time">
-              <option value="" disabled>Select a time…</option>
-              <option v-for="s in dropoffSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
-            </select>
+<div class="locked-wrap">
+              <select v-model="dropoffTime" class="select-time" :disabled="!locationId">
+                <option value="" disabled>Select a time…</option>
+                <option v-for="s in dropoffSlots" :key="s.time" :value="s.time" :disabled="s.past">{{ s.label }}</option>
+              </select>
+              <button v-if="!locationId" type="button" class="locked-overlay" aria-label="Pick a location first" @click="promptForLocation" />
+            </div>
             <p v-if="dropoffDate && dropoffSlots.length === 0" class="field-hint">Closed this day.</p>
           </div>
         </div>
@@ -1245,5 +1274,31 @@ async function submitReservation() {
 <style scoped>
 .error-note {
   color: var(--crit);
+}
+.locked-wrap {
+  position: relative;
+}
+.locked-wrap > input,
+.locked-wrap > select {
+  width: 100%;
+}
+.locked-wrap > input:disabled,
+.locked-wrap > select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Disabled controls swallow clicks, so a transparent button sits on top
+   to catch them and show the "pick a location" prompt. */
+.locked-overlay {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: not-allowed;
+}
+.needs-attention {
+  border-color: var(--crit) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 20%, transparent);
 }
 </style>
